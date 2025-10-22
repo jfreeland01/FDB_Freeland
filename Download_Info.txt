@@ -1,0 +1,12 @@
+Links to donwloaded files
+
+CTRP Data: https://depmap.org/portal/data_page/?tab=allData
+	- CTRPv2.0_2015_ctd2_ExpandedDataset.zip
+	- CTRPv2 file
+
+PRISM Data: https://depmap.org/portal/data_page/?tab=allData
+	- PRISM Primary Repurposing DepMap Public 24Q2
+	- Repurposing_Public_24Q2_Extended_Primary_Data_Matrix.csv
+
+GDSC Data: https://depmap.org/portal/data_page/?tab=allData
+	- Sanger GDSC1 and 2
