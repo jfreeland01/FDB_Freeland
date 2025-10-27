@@ -5,6 +5,7 @@ library(doParallel)
 library(doRNG)
 library(missForest)
 library(dplyr)
+library(mixOmics)
 
 #### Imputation: CRISPR (NA's in Data) ####
 
@@ -91,7 +92,7 @@ write.table(
 
 # ctrp.rsl3 <-  ctrp.curves[ctrp.curves$cpd_name == "1S,3R-RSL-3",]
 # table(table(ctrp.rsl3$DepMap_ID))
-#write.table(ctrp.rsl3, paste0(path.ctrp,"ctrp.rsl3.txt"), quote = F, col.names=T, row.names = F, sep = "\t")
+# write.table(ctrp.rsl3, paste0(path.ctrp,"ctrp.rsl3.txt"), quote = F, col.names=T, row.names = F, sep = "\t")
 
 ## trim and average data frame
 ctrp.curves.abr <- ctrp.curves %>% 
@@ -180,3 +181,72 @@ write.table(
   quote = F,sep = "\t",
   col.names = NA
   )
+
+##### PLSR: CRISPR & CTRP #####
+
+## set paths
+path.dm   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/DepMap_25Q3/"
+path.ctrp <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/CTRPv2/"
+
+## read in data and set row names
+CRISPR <- read.delim(file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"), sep = "\t", stringsAsFactors = F) %>%
+  tibble::column_to_rownames(var = "X")
+CTRP <- read.delim(file = paste0(path.ctrp, "ctrpv2.wide_culled80_MFImputed.txt"), sep = "\t", stringsAsFactors = F) %>%
+  tibble::column_to_rownames(var = "X")
+
+## filter for shared cell lines, make matrix (for mixomics), ensure numeric
+ids <- intersect(rownames(CRISPR), rownames(CTRP))
+
+X <- CRISPR[ids, , drop = FALSE]
+Y <- CTRP[ids, , drop = FALSE]
+
+X[] <- lapply(X, base::as.numeric)
+Y[] <- lapply(Y, base::as.numeric)
+
+X <- as.matrix(X)
+Y <- as.matrix(Y)
+
+## run PLS
+ncomp <- 15
+
+pls_fit <- mixOmics::pls(
+  X = X,
+  Y = Y,
+  ncomp = ncomp,
+  scale = TRUE,
+  mode  = "regression"    # default
+)
+
+## extract from pls_fit object
+print(pls_fit$prop_expl_var$X)
+
+x.variates <- data.frame(pls_fit$variates$X)
+y.variates <- data.frame(pls_fit$variates$Y)
+
+x.loadings <- data.frame(pls_fit$loadings$X)
+y.loadings <- data.frame(pls_fit$loadings$Y)
+
+dim(x.variates);dim(x.loadings)
+dim(y.variates);dim(y.loadings)
+
+x.exp_variance <- data.frame(pls_fit$prop_expl_var$X)
+y.exp_variance <- data.frame(pls_fit$prop_expl_var$Y)
+
+variates.X <- cbind(Score = rownames(pls_fit$variates$X), x.variates)
+variates.Y <- cbind(Score = rownames(pls_fit$variates$Y), y.variates)
+
+loadings.X <- cbind(Loading = rownames(pls_fit$loadings$X), x.loadings)
+loadings.Y <- cbind(Loading = rownames(pls_fit$loadings$Y), y.loadings)
+
+rownames(x.exp_variance) = paste0("comp.",seq(1,nrow(x.exp_variance)))
+
+loadings.X.Y = merge(loadings.X,loadings.Y,by="Loading",suffixes = c(".geneexp",".crispr"))
+variates.X.Y = merge(variates.X,variates.Y,by="Score",suffixes = c(".geneexp",".crispr"))
+
+# save files
+file.gs.gs = "PLSR geneexp vs crispr.txt"
+
+write.table(as.data.frame(variates.X.Y), paste0(gsub(".txt", "", file.gs.gs),"_ncomp",ncomp,"_weight.type-",weight.type, "_PLSR_X.Y.variates.txt"), sep = "\t", row.names = F, quote = F)
+write.table(as.data.frame(loadings.X.Y), paste0(gsub(".txt", "", file.gs.gs),"_ncomp",ncomp,"_weight.type-",weight.type, "_PLSR_X.Y.loadings.txt"), sep = "\t", row.names = F, quote = F)
+
+write.table(as.data.frame(x.exp_variance), paste0(gsub(".txt", "", file.gs.gs),"_weight.type-",weight.type, "_PLSR_Xpve.txt"), sep = "\t", row.names = T, quote = F)
