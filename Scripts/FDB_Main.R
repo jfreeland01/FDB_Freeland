@@ -404,7 +404,7 @@ my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D","#00BFC4","#00B
                ,"hotpink","purple","cyan")
 my_colors_main <- my_colors
 
-ggplot2::ggplot(Y_loadings, aes_string(x = "comp1", y = "comp2", color = "target.category", label = "target.category"))  + 
+ggplot2::ggplot(Y_loadings, aes_string(x = "comp3", y = "comp4", color = "target.category", label = "target.category"))  + 
   geom_point() + 
   geom_text_repel() +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
