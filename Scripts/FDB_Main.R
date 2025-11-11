@@ -13,7 +13,9 @@ library(ggrepel)
 #### Imputation: CRISPR (NA's in Data) ####
 
 ## pull in data
-file.crispr <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/DepMap_25Q3/CRISPRGeneEffect.csv"
+path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+
+file.crispr <- paste0(path.wd, "DataSets/DepMap_25Q3/CRISPRGeneEffect.csv")
 
 CRISPR <- read.delim(
   file = file.crispr,
@@ -62,8 +64,10 @@ write.table(
 ##### Imputation: CTRP (NA's in Data)#####
 
 ## provide initial paths
-path.dm   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/DepMap_25Q3/"
-path.ctrp <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/CTRPv2/"
+path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+
+path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 
 ## load in cell line info from depamp
 models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F)
@@ -185,8 +189,10 @@ write.table(
 ##### PLSR Run: CRISPR & CTRP #####
 
 ## set paths
-path.dm   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/DepMap_25Q3/"
-path.ctrp <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/CTRPv2/"
+path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+
+path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 
 ## read in data and set row names
 CRISPR <- read.delim(file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"), sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1)
@@ -206,13 +212,14 @@ Y <- as.matrix(Y)
 
 ## run PLS
 ncomp <- 15
+mode = "regression" # default = regression, symmetric = canonical
 
 pls_fit <- mixOmics::pls(
   X = X,
   Y = Y,
   ncomp = ncomp,
   scale = TRUE,
-  mode  = "regression"    # default
+  mode  = mode
 )
 
 print(pls_fit$prop_expl_var$X)
@@ -240,51 +247,54 @@ y.exp_variance <- data.frame(pls_fit$prop_expl_var$Y)
 # rownames(x.exp_variance) = paste0("comp.",seq(1,nrow(x.exp_variance)))
 # rownames(y.exp_variance) = paste0("comp.",seq(1,nrow(y.exp_variance)))
 
-variates.X.Y = merge(x.variates,y.variates,by="Score",suffixes = c(".geneexp",".crispr"))
+variates.X.Y = merge(x.variates,y.variates,by="Score",suffixes = c(".CRISPR",".CTRP"))
 
 ## save files
-path.pls <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/PLS/"
+path.pls <- paste0(path.wd, "DataSets/PLS/")
 
 write.table(
   x = x.variates,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.variates.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_X.variates.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = y.variates,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.variates.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_Y.variates.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = variates.X.Y,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.Y.variates.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_X.Y.variates.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = x.loadings,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.loadings.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_X.loadings.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = y.loadings,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.loadings.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_Y.loadings.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = x.exp_variance,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.expvar.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_X.expvar.txt"),
   sep = "\t", quote = F, row.names = F)
 
 write.table(
   x = y.exp_variance,
-  file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.expvar.txt"),
+  file = paste0(path.pls, "PLS_Mode.", mode, "_X.CRISPR_Y.CTRP_Y.expvar.txt"),
   sep = "\t", quote = F, row.names = F)
 
 ##### PLSR Plot: CRISPR & CTRP #####
 
 #### load in drug data
-path.ctrp <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/CTRPv2/"
-path.pls <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/PLS/"
+path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+
+path.ctrp <- paste0(path.wd, "/DataSets/CTRPv2/")
+path.pls <- paste0(path.wd, "/DataSets/PLS/")
+path.plots <- paste0(path.wd, "/Plots/")
 
 ctrp.inform <- read.delim(file = paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 Y_loadings <- read.delim(file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.loadings.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
@@ -359,7 +369,7 @@ Y_loadings <- Y_loadings %>%
 
 #### load in CRISPR data
 gene.info.all <- read.delim(
-  file = "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/General/NCBI Gene Homo_sapiens.gene_info 20220719.txt", sep = "\t", stringsAsFactors = F, check.names = F)
+  file = "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/General/Homo_sapiens.gene_info.20251028", sep = "\t", stringsAsFactors = F, check.names = F)
 gene.info <- gene.info.all[gene.info.all$Symbol_from_nomenclature_authority !="-",]
 gene.info.abr <- gene.info %>% dplyr::select(Symbol, description)
 
@@ -399,22 +409,65 @@ X_loadings <- X_loadings %>%
 
 # variates.X.Y.c.c.plotting = merge(samples %>% dplyr::select(stripped_cell_line_name,lineage_subtype,OncotreeLineage),variates.X.Y.c.c,by.x="stripped_cell_line_name",by.y="Score")
 
-## plotting
+## plotting drugs
 my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D","#00BFC4","#00B4F0","#619CFF"
                ,"hotpink","purple","cyan")
 my_colors_main <- my_colors
 
-ggplot2::ggplot(Y_loadings, aes_string(x = "comp3", y = "comp4", color = "target.category", label = "target.category"))  + 
-  geom_point() + 
-  geom_text_repel() +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) + 
-  scale_color_manual(values = my_colors, na.value = "grey80") +
-  theme_minimal()
+for (i in c(1:(sum(grepl("comp", colnames(Y_loadings))) - 1)) ) {
+
+  comp1 = "comp1"
+  comp2 = paste0("comp", 1+i)
+  
+  plot <- ggplot2::ggplot(Y_loadings, aes_string(x = comp1, y = comp2, color = "target.category", label = "target.category"))  + 
+    geom_point(size = 2.5) + 
+    geom_text_repel(size = 2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) + 
+    scale_color_manual(values = my_colors, na.value = "grey80") +
+    theme_bw(base_size = 10)
+  
+  ggsave(
+    filename = paste0(path.wd, "Plots/Plot_", "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.loadings_", comp1, "vs", comp2, ".pdf"),
+    plot = plot,
+    width = 6,
+    height = 4,
+    units = "in",
+    device = cairo_pdf
+  )
+
+}
 
 
+## plotting genes
 
+my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D","#00BFC4","#00B4F0","#619CFF"
+               ,"hotpink","purple","cyan")
+my_colors_main <- my_colors
 
+for (i in c(1:(sum(grepl("comp", colnames(X_loadings))) - 1)) ) {
+  
+  comp1 = "comp1"
+  comp2 = paste0("comp", 1+i)
+  
+  plot <- ggplot2::ggplot(X_loadings, aes_string(x = comp1, y = comp2, color = "group", label = "group"))  + 
+    geom_point(size = 2.5) + 
+    geom_text_repel(size = 2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) + 
+    scale_color_manual(values = my_colors, na.value = "grey80") +
+    theme_bw(base_size = 10)
+  
+  ggsave(
+    filename = paste0(path.wd, "Plots/Plot_", "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.loadings_", comp1, "vs", comp2, ".pdf"),
+    plot = plot,
+    width = 6,
+    height = 4,
+    units = "in",
+    device = cairo_pdf
+  )
+  
+}
 
 
 
