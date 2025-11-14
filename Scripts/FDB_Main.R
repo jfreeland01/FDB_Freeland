@@ -578,197 +578,118 @@ if(1) {
   }
 }
 
+##### Max loadings plot #####
 
+## Set Paths (same as above section)
+path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
+path.pls  <- paste0(path.wd, "DataSets/PLS/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.general <- paste0(path.wd, "DataSets/General/")
+path.max <- paste0(path.wd, "DataSets/MaxLoading/")
 
-##### BACKUP PLSR Plot: CRISPR & CTRP #####
+## set PLS parameters. CRISPR or CTRP
+X1_source <- "CRISPR"
+Y1_source <- "CTRP"
 
-#### load in drug data
-path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+X2_source <- "CRISPR"
+Y2_source <- "CTRP"
 
-path.ctrp <- paste0(path.wd, "/DataSets/CTRPv2/")
-path.pls <- paste0(path.wd, "/DataSets/PLS/")
-path.plots <- paste0(path.wd, "/Plots/")
+mode  <- "canonical" # default = regression, symmetric = canonical
 
-ctrp.inform <- read.delim(file = paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
-Y_loadings <- read.delim(file = paste0(path.pls, "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.loadings.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
-
-## Prep for plotting
-lookup_indices <- match(Y_loadings$Loading, ctrp.inform$cpd_name)
-Y_loadings$drug.target <- ctrp.inform$target_or_activity_of_compound[lookup_indices]
-
-## adding extra collumns
-Y_loadings <- Y_loadings %>%
-  dplyr::mutate(
-    group = NA,
-    group = case_when(
-      stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-      str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
-      stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)") ~ "03 ferropt",
-      stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
-      stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
-      stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
-      
-      stringr::str_detect(drug.target %||% "", "BCL2") & !str_detect(Loading, ":") ~ "07 BCL2+i",
-      
-      TRUE ~ NA_character_
-    ),
-    
-    # group.atp5 only for oligomycin A
-    group.atp5 = NA,
-    group.atp5 = if_else(str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-    
-    # NA flags & labels
-    group.na = if_else(is.na(group), 1L, 0L),
-    group.atp5.na = if_else(is.na(group.atp5), 1L, 0L),
-    label.not.na = if_else(!is.na(group), Loading, NA_character_),
-    label.not.na.atp5 = if_else(!is.na(group.atp5), Loading, NA_character_),
-    
-    # mix flag (dual vs single drug) based on presence of ':'
-    mix.flag = if_else(str_detect(Loading, ":"), "dual drug", "single drug")
+if(1){
+  
+  ## file tag
+  file1_tag <- paste0("PLS_Mode.", mode, "_X.", X1_source, "_Y.", Y1_source)
+  file2_tag <- paste0("PLS_Mode.", mode, "_X.", X2_source, "_Y.", Y2_source)
+  
+  ## read in data
+  X1_loadings <- read.delim(
+    file = paste0(path.pls, file1_tag, "_X.loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   ) %>%
-  arrange(desc(group.na))
-
-## Target category bucketing
-detect <- function(x, pattern) str_detect(x %||% "", regex(pattern, ignore_case = TRUE))
-
-Y_loadings <- Y_loadings %>%
-  mutate(target.category = NA_character_) %>%
-  mutate(target.category = if_else(detect(drug.target, "DNA damage"), "DNA.damage", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "(micro|mi)rotubule"), "microtubule", target.category)) %>%  # handles typos
-  mutate(target.category = if_else(detect(drug.target, "polo\\-like kinase 1|\\bPLK1\\b"), "PLK1", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "polo\\-like kinase 2|\\bPLK2\\b"), "PLK2", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "aurora kinase"), "aurora", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "DNA methyltransferase"), "DNA meth", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "DNA replication"), "DNA rep", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "nicotinamide phosphoribosyltransferase|\\bNAMPT\\b"), "NAMPT", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "dihydrofolate reductase|\\bDHFR\\b"), "DHFR", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "BCL2"), "BCL2.", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "XXXX"), "XXXX", target.category)) %>%
-  mutate(target.category = if_else(detect(drug.target, "XXXX"), "XXXX", target.category))
-
-
-## add in % NA's column ( Y from above section)
-percent.nas <- as.data.frame(colMeans(is.na(Y)) * 100)
-names(percent.nas) <- "percent.nas"
-percent.nas <- percent.nas %>%
-  tibble::rownames_to_column(var = "Loading")
-
-Y_loadings <- Y_loadings %>%
-  left_join(percent.nas, by = "Loading")
-
-Y_loadings <- Y_loadings %>%
-  dplyr::select(Loading, group, percent.nas, contains("target"), contains("flag"), everything())
-
-
-#### load in CRISPR data
-gene.info.all <- read.delim(
-  file = "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/DataSets/General/Homo_sapiens.gene_info.20251028", sep = "\t", stringsAsFactors = F, check.names = F)
-gene.info <- gene.info.all[gene.info.all$Symbol_from_nomenclature_authority !="-",]
-gene.info.abr <- gene.info %>% dplyr::select(Symbol, description)
-
-X_loadings <- read.delim(file = paste0(path.pls, "PLS_Mode.Canonical_X.CRISPR_Y.CTRP_X.loadings.txt"), sep = "\t", stringsAsFactors = F, check.names = F) %>%
-  dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
-
-X_loadings <- merge(X_loadings, gene.info.abr, by.x="Loading", by.y="Symbol", all.x=T)
-
-X_loadings <- X_loadings %>%
-  dplyr::mutate(
-    group = case_when(
-      stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)")     ~ "01 BRAF sig",
-      stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|PIK3CA|ERBB2)$")         ~ "02 EGFR sig",
-      stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$")  ~ "03 ferropt",
-      stringr::str_detect(Loading, "^MDM[24]$")                                     ~ "04 MDM2.MDM4",
-      stringr::str_detect(Loading, "^ATP5")                                         ~ "05 ATP5",
-      stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                            ~ "06 dasa targets",
-      stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                   ~ "07 BCL2+",
-      stringr::str_detect(Loading, "^MYC(|N|L)")                                    ~ "08 MYC.",
-      stringr::str_detect(Loading, "^(GRB2|CRKL)")                                  ~ "09 SRC-related",
-      stringr::str_detect(Loading, "^TP53$")                                        ~ "10 TP53",
-      stringr::str_detect(Loading, "^MED12$")                                       ~ "11 MED12",
-      TRUE ~ NA_character_
-    ),
-    group.atp5 = if_else(str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_)
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
+    dplyr::select(Loading, paste0("comp", 1:10))
+  
+  X2_loadings <- read.delim(
+    file = paste0(path.pls, file2_tag, "_X.loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
+    dplyr::select(Loading, paste0("comp", 1:10))
+  
+  ## find max abs()
+  X1_loadings_max <- X1_loadings %>%
+    tidyr::pivot_longer(
+      cols = paste0("comp", 1:10),
+      names_to  = "component",
+      values_to = "loading"
+    ) %>%
+    dplyr::mutate(abs_loading = abs(loading)) %>%
+    dplyr::group_by(Loading) %>%
+    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    dplyr::rename(
+      component_CRISPR    = component,
+      loading_CRISPR      = loading,
+      abs_loading_CRISPR  = abs_loading
+    )
+  
+  X2_loadings_max <- X2_loadings %>%
+    tidyr::pivot_longer(
+      cols = paste0("comp", 1:10),
+      names_to  = "component",
+      values_to = "loading"
+    ) %>%
+    dplyr::mutate(abs_loading = abs(loading)) %>%
+    dplyr::group_by(Loading) %>%
+    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    dplyr::rename(
+      component_RNAi    = component,
+      loading_RNAi      = loading,
+      abs_loading_RNAi  = abs_loading
+    )
+  
+  ## merge
+  Max <- merge(X1_loadings_max, X2_loadings_max, by = "Loading")
+  
+  xcol <- names(Max)[4]   # 4th column name
+  ycol <- names(Max)[7]   # 7th column name
+  
+  Max <- Max %>%
+    dplyr::mutate(
+      theta_rad = atan2(.data[[ycol]], .data[[xcol]]),
+      theta_deg = theta_rad * 180 / pi,
+      r         = sqrt(.data[[xcol]]^2 + .data[[ycol]]^2)
+    )
+  
+  write.table(
+    x = Max,
+    file = paste0(path.max, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".txt"),
+    quote = F, sep = "\t", col.names = T)
+  
+  ## plot 
+  plot_df <- data.frame(
+    x      = Max[[4]],   # 4th column = abs_loading_CRISPR
+    y      = Max[[7]],   # 7th column = abs_loading_RNAi
+    gene   = Max$Loading
   )
-
-X_loadings <- X_loadings %>%
-  dplyr::select(Loading, description, group, everything()) %>%
-  dplyr::mutate(
-    group.na         = if_else(is.na(group), 1L, 0L),
-    group.atp5.na    = if_else(is.na(group.atp5), 1L, 0L),
-    label.not.na     = if_else(!is.na(group), Loading, NA_character_),
-    label.not.na.atp5= if_else(!is.na(group.atp5), Loading, NA_character_)
-  ) %>%
-  dplyr::arrange(desc(group.na))
-
-# variates.X.Y.c.c.plotting = merge(samples %>% dplyr::select(stripped_cell_line_name,lineage_subtype,OncotreeLineage),variates.X.Y.c.c,by.x="stripped_cell_line_name",by.y="Score")
-
-## plotting drugs
-my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D","#00BFC4","#00B4F0","#619CFF"
-               ,"hotpink","purple","cyan")
-my_colors_main <- my_colors
-
-for (i in c(1:(sum(grepl("comp", colnames(Y_loadings))) - 1)) ) {
   
-  comp1 = "comp1"
-  comp2 = paste0("comp", 1+i)
+  p <- ggplot(plot_df, aes(x = x, y = y, label = NA)) +
+    geom_point(size = 3) +
+    geom_text_repel(max.overlaps = Inf) +
+    theme_bw(base_size = 14) +
+    labs(
+      x = names(Max)[4],
+      y = names(Max)[7],
+      title = "Max Absolute Loadings per Gene"
+    )
   
-  plot <- ggplot2::ggplot(Y_loadings, aes_string(x = comp1, y = comp2, color = "target.category", label = "target.category"))  + 
-    geom_point(size = 2.5) + 
-    geom_text_repel(size = 2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) + 
-    scale_color_manual(values = my_colors, na.value = "grey80") +
-    theme_bw(base_size = 10)
-  
-  ggsave(
-    filename = paste0(path.wd, "Plots/Plot_", "PLS_Mode.Regression_X.CRISPR_Y.CTRP_Y.loadings_", comp1, "vs", comp2, ".pdf"),
-    plot = plot,
-    width = 6,
-    height = 4,
-    units = "in",
-    device = cairo_pdf
+  ggplot2::ggsave(
+    filename = paste0(path.max, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".pdf"),
+    plot = p, width = 6, height = 4, units = "in", device = cairo_pdf
   )
   
 }
-
-
-## plotting genes
-
-my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D","#00BFC4","#00B4F0","#619CFF"
-               ,"hotpink","purple","cyan")
-my_colors_main <- my_colors
-
-for (i in c(1:(sum(grepl("comp", colnames(X_loadings))) - 1)) ) {
-  
-  comp1 = "comp1"
-  comp2 = paste0("comp", 1+i)
-  
-  plot <- ggplot2::ggplot(X_loadings, aes_string(x = comp1, y = comp2, color = "group", label = "group"))  + 
-    geom_point(size = 2.5) + 
-    geom_text_repel(size = 2) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) + 
-    scale_color_manual(values = my_colors, na.value = "grey80") +
-    theme_bw(base_size = 10)
-  
-  ggsave(
-    filename = paste0(path.wd, "Plots/Plot_", "PLS_Mode.Regression_X.CRISPR_Y.CTRP_X.loadings_", comp1, "vs", comp2, ".pdf"),
-    plot = plot,
-    width = 6,
-    height = 4,
-    units = "in",
-    device = cairo_pdf
-  )
-  
-}
-
-
-
-
-
-
-
-
-
-
-
