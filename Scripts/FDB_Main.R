@@ -8,14 +8,17 @@ if(1) {
   library(stringr)
   library(ggplot2)
   library(ggrepel)
+  library(purrr)
+  library(tibble)
 }
+
 #### Imputation: CRISPR (NA's in Data) ####
 
-## pull in data
+## Set paths
 path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-
 file.crispr <- paste0(path.wd, "DataSets/DepMap_25Q3/CRISPRGeneEffect.csv")
 
+## Pull in data
 CRISPR <- read.delim(
   file = file.crispr,
   row.names = 1,
@@ -38,7 +41,7 @@ table(colSums(is.na(CRISPR)))
 # 8925  8926  8927  8928  8943  8967 11130 11132 11220 11630 13697 14311 
 # 54    13    12     1     1     1     1     1     1     1     1     1 
 
-## miss forest  
+## Random forrest  
 doParallel::registerDoParallel(cores = detectCores() - 2)
 doRNG::registerDoRNG(seed = 999)
 set.seed(999)
@@ -55,7 +58,7 @@ CRISPR_mf.imp_t <- as.data.frame(
   stringsAsFactors = F
 )
 
-## save 
+## Save 
 write.table(
   x = CRISPR_mf.imp, 
   file = gsub(".csv$","_MFImputed.txt",file.crispr), 
@@ -74,11 +77,11 @@ write.table(
 
 #### Imputation: RNAi (NA's in Data) ####
 
-## pull in data
+## Set paths
 path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-
 file.rnai <- paste0(path.wd, "DataSets/DepMap_25Q3/D2_combined_gene_dep_scores.csv")
 
+## Pull in data
 RNAi <- read.delim(
   file = file.rnai,
   row.names = 1,
@@ -103,7 +106,7 @@ table(colSums(is.na(RNAi)))
 # 1     1     1    1     1     1     1     1     1
 
 
-## miss forest  
+## Random forrest
 doParallel::registerDoParallel(cores = detectCores() - 2)
 doRNG::registerDoRNG(seed = 999)
 set.seed(999)
@@ -120,7 +123,7 @@ RNAi_mf.imp_t <- as.data.frame(
   stringsAsFactors = F
 )
 
-## save 
+## Save 
 write.table(
   x = RNAi_mf.imp, 
   file = gsub(".csv$","_MFImputed.txt",file.rnai), 
@@ -139,30 +142,27 @@ write.table(
 
 ##### Imputation: CTRP (NA's in Data) #####
 
-## provide initial paths
+## Set paths
 path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-
 path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 
-## load in cell line info from depamp
+## Load in cell line info from depamp
 models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F)
 
-## load in CTRP Data
+## lLoad in CTRP Data
 ctrp.expt   <- read.delim(paste0(path.ctrp,"v20.meta.per_experiment.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 ctrp.cell   <- read.delim(paste0(path.ctrp,"v20.meta.per_cell_line.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 ctrp.inform <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 ctrp.curves <- read.delim(paste0(path.ctrp,"v20.data.curves_post_qc.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 
-# temp <- as.data.frame(table(ctrp.expt$master_ccl_id))
-
-## add ID's and name to curves
+## Add ID's and name to curves
 ctrp.curves$master_ccl_id <- ctrp.expt$master_ccl_id[match(ctrp.curves$experiment_id, ctrp.expt$experiment_id)]
 ctrp.curves$ccl_name      <- ctrp.cell$ccl_name[match(ctrp.curves$master_ccl_id, ctrp.cell$master_ccl_id)]
 ctrp.curves$DepMap_ID     <- models$ModelID[match(ctrp.curves$ccl_name, models$StrippedCellLineName)]
 ctrp.curves$cpd_name      <- ctrp.inform$cpd_name[match(ctrp.curves$master_cpd_id, ctrp.inform$master_cpd_id)]
 
-## move important columns to front
+## Move important columns to front
 ctrp.curves <- ctrp.curves %>% 
   dplyr::select(DepMap_ID, ccl_name, master_ccl_id, cpd_name, area_under_curve, experiment_id, everything())
 
@@ -174,7 +174,7 @@ write.table(
   file = paste0(path.ctrp,"ctrp.curves.txt"),
   quote = F, col.names=T, row.names = F, sep = "\t")
 
-## trim and average data frame
+## Trim and average data frame
 ctrp.curves.abr <- ctrp.curves %>% 
   dplyr::select(DepMap_ID, ccl_name, master_ccl_id, cpd_name, master_cpd_id, area_under_curve)
 
@@ -182,9 +182,6 @@ ctrpv2.ave <- ctrp.curves.abr %>%
   dplyr::group_by(DepMap_ID, ccl_name,master_ccl_id, cpd_name,master_cpd_id) %>%
   dplyr::summarise(avg = mean(area_under_curve)) %>%
   dplyr::ungroup()
-
-# ctrp.ave.rsl3 <- ctrpv2.ave[ctrpv2.ave$cpd_name == "1S,3R-RSL-3",]
-# names(ctrpv2.ave)
 
 ctrpv2.ave.wide <- ctrpv2.ave %>% 
   dplyr::select(DepMap_ID, ccl_name, cpd_name, avg)
@@ -208,19 +205,19 @@ write.table(
 
 ctrpv2 <- ctrpv2.ave.wide
 
-## create a culled version - rename one entry with no DepMap_ID - keep only drugs with data for > 20% of the cell lines
+## Create a culled version
 ctrpv3 <-  ctrpv2
 
-## rename one entry with no DepMap_ID
+## Rename one entry with no DepMap_ID
 ctrpv3$DepMap_ID <-  ifelse(is.na(ctrpv3$DepMap_ID),"no.depmap.match",ctrpv3$DepMap_ID)
 row.names(ctrpv3) <- ctrpv3$DepMap_ID
 ctrpv3 <-  ctrpv3[,-1]
 
-## remove drugs with > 80% NAs
+## Remove drugs with > 80% NAs
 percent.nas <- as.data.frame(colMeans(is.na(ctrpv3)) * 100)
 names(percent.nas) <- "percent.nas"
 
-## keep only drugs with data for > 20% of the cell lines
+## Keep only drugs with data for > 20% of the cell lines
 percent.nas$eighty.percent.keep.flag <- ifelse(percent.nas$percent.nas > 80, 0, 1)
 print("cut drugs")
 print(percent.nas[percent.nas$eighty.percent.keep.flag == 0, ])
@@ -232,7 +229,7 @@ write.table(
   file = gsub(".(csv|txt)$","_culled80.\\1",file.ctrpv2.wide),
   quote = F, col.names=T, row.names = T, sep = "\t")
 
-## run imputation
+## Run imputation
 doParallel::registerDoParallel(cores = detectCores() - 2)
 doRNG::registerDoRNG(seed = 999)
 set.seed(999)
@@ -262,7 +259,7 @@ write.table(
   col.names = NA
   )
 
-##### PLSR: CRISPR & CTRP #####
+##### PLS: CRISPR & CTRP #####
 
 ## Set paths
 path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
@@ -314,7 +311,7 @@ if(1) {
   
   X <- as.matrix(X)
   Y <- as.matrix(Y)
-} 
+}
 
 #### 2. Execute to run PLS and save output files (requires Step 1)
 if(1){
@@ -588,7 +585,7 @@ if(1) {
   }
 }
 
-##### PLSR: RNAi & CTRP #####
+##### PLS: RNAi & CTRP #####
 
 ## Set paths
 path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
@@ -927,7 +924,7 @@ if(1) {
   }
 }
 
-##### RCCA: CRISPR & CTRP #####
+##### rCCA: CRISPR & CTRP #####
 
 ## Set paths
 path.wd      <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
@@ -1293,7 +1290,7 @@ if(1) {
 
 
 
-##### RCCA: RNAi & CTRP #####
+##### rCCA: RNAi & CTRP #####
 
 ## Set paths
 path.wd      <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
@@ -1682,12 +1679,9 @@ if (1) {
 
 ## Set Paths (same as above section)
 path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
-path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 path.pls  <- paste0(path.wd, "DataSets/PLS/")
 path.rcca <- paste0(path.wd, "DataSets/rCCA/")
 path.plots   <- paste0(path.wd, "Plots/")
-path.general <- paste0(path.wd, "DataSets/General/")
 path.max <- paste0(path.wd, "DataSets/MaxLoading/")
 
 ## set dim red technique. PLS, rCCA
@@ -1780,7 +1774,7 @@ if(1){
   write.table(
     x = Max,
     file = paste0(path.max, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".txt"),
-    quote = F, sep = "\t", col.names = T)
+    quote = F, sep = "\t", col.names = T, row.names = F)
   
   ## plot 
   plot_df <- data.frame(
@@ -1809,8 +1803,334 @@ if(1){
     scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA))
   
   ggplot2::ggsave(
-    filename = paste0(path.max, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".pdf"),
+    filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".pdf"),
     plot = p, width = 6, height = 4, units = "in", device = cairo_pdf
   )
   
 }
+
+##### GSEA #####
+
+### Set paths and read functions
+path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.max <- paste0(path.wd, "DataSets/MaxLoading/")
+path.scripts <- "/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/"
+
+source(paste0(path.scripts, "FGSEA_functions.R"))
+
+### Load msigdb pathways
+msig_df <- load.MSigDB(species = 'Homo sapiens')
+
+gsea_list <- get.MSigDB.genesets(
+  msig_df = rbind(
+    msigdbr::msigdbr(species = "Homo sapiens", category = "C2"),
+    msigdbr::msigdbr(species = "Homo sapiens", category = "C5"),
+    msigdbr::msigdbr(species = "Homo sapiens", category = "H")
+  ), # restart R session if error (C2, C5, H)
+  genesets = c("CP", "GO", "H$")
+)
+
+# gsea_list <- get.MSigDB.genesets(
+#   msig_df = rbind(
+#     msigdbr(species = "Homo sapiens", category = "H"),
+#     msigdbr(species = "Homo sapiens", category = "C1"),
+#     msigdbr(species = "Homo sapiens", category = "C2"),
+#     msigdbr(species = "Homo sapiens", category = "C3"),
+#     msigdbr(species = "Homo sapiens", category = "C4"),
+#     msigdbr(species = "Homo sapiens", category = "C5"),
+#     msigdbr(species = "Homo sapiens", category = "C6"),
+#     msigdbr(species = "Homo sapiens", category = "C7"),
+#     msigdbr(species = "Homo sapiens", category = "C8"),
+#     msigdbr(species = "Homo sapiens", category = "C8")
+#   ),
+#   genesets = c()
+# )
+
+### Read input data
+input.path <- paste0(path.max, "MaxLoadingsDF_canonical_X1_CRISPR_vs_CTRP_X2_RNAi_vs_CTRP.txt")
+
+rankings <- read.delim(
+  file = input.path,
+  stringsAsFactors = F,
+  sep = "\t",
+  check.names = F
+) %>%
+  tibble::column_to_rownames(var = "Loading")
+
+rnk <- get.rnk.vector(DE_results = rankings, column_name = "theta_deg")
+
+### Run GSEA
+FGSEA_results <- run.FGSEA(rnk, gsea_list, nproc = 2, minGenes = 3, maxGenes = 5000, reformat = T, filename = F, minP = 1e-20)
+
+FGSEA_results_rnk <- FGSEA_results %>%
+  dplyr::arrange(desc(NES)) %>%
+  dplyr::mutate(rank = 1:n())
+
+### Save file
+write.table(FGSEA_results_rnk,
+            file = paste0(path.max, "FGSEA_", basename(input.path)),
+            sep = "\t", quote = F,
+            row.names = F)
+
+##### GSEA^2 #####
+
+## Set Paths
+path.wd    <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.max   <- paste0(path.wd, "DataSets/MaxLoading/")
+path.plots <- paste0(path.wd, "Plots/")
+
+## Load input data
+path.input <- paste0(
+  path.max,
+  "FGSEA_MaxLoadingsDF_canonical_X1_CRISPR_vs_CTRP_X2_RNAi_vs_CTRP.txt"
+)
+
+FGSEA_results_rnk <- read.table(
+  file   = path.input,
+  sep    = "\t",
+  header = TRUE
+)
+
+### Prep for GSEA^2 
+
+# Define keyword groups
+keyword_groups <- list(
+  OX =
+    c("OXIDATIVE_PHOSPHORYLATION", "ELECTRON_TRANSPORT_CHAIN", "MITOCHONDRIAL_COMPLEX",
+      "NADH_DEHYDROGENASE", "MITOCHONDRIAL_LARGE_RIBOSOMAL"),
+  DNA =
+    c("DNA_REPAIR", "DNA_DAMAGE_STIMULUS", "FANCONI", "END_JOINING"),
+  NEURO = 
+    c("NEURO", "NEUROTRANSMITTER", "SYNAPTIC", "VOLTAGE", "AXON",
+      "CEREBRAL", "CORTEX", "DENDRITE", "GLUTAMATE"),
+  IMMUNE =
+    c("INFLAME", "IMMUNE", "INTERLEUKIN", "LEUKOCYTE", "CD4",
+      "MACROPHAGE", "NEUTROPHILE"),
+  TISSUE_DEVELOPMENT =
+    c("MORPHOGENESIS", "VESSEL", "TISSUE_DEVELOPMENT", "TISSUE"),
+  SENSORY_PERCEPTION =
+    c("SENSORY", "AUDITORY", "SMELL"),
+  KINASE_ACTIVITY =
+    c("MAPK", "KINASE", "GTP", "TYROSINE"),
+  CELL_DIFFERENTIATION =
+    c("KERATINOCYTE", "DIFFERENTIATION"),
+  CELL_CELL_INTERACTION =
+    c("ADHESION", "ADHERENS", "CELL-CELL", "COMMUNICATION"),
+  PEROXISOME =
+    c("PEROXIDE", "PEROXISOME"),
+  CELL_PROLIFERATION =
+    c("PROLIFERATION"),
+  PROTEIN_PROCESSING =
+    c("PEPTIDE", "AMINO_ACID", "UBIQUITIN", "UBIQUITINATION"),
+  VIRAL_PROCESSES =
+    c("VIRAL", "SYMBIOTIC", "DSRNA"),
+  MICRO_RNA =
+    c("MIRNA"),
+  STRESS_RESPONSE =
+    c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
+  METABOLIC_PATHWAY =
+    c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
+      "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
+  MITOCHONDRIA =
+    c("MITOCHONDRIAL", "MITOCHONDRION"),
+  ORGANELLE_TRANSPORT =
+    c("ENDOPLASMIC_RETICULUM", "GOLGI", "VACUOLE"),
+  ORGANELLE_ORGANIZATION =
+    c("ORGANELLE"),
+  EPIGENETIC =
+    c("HISTONE", "NUCLEOSIDE", "DEMETHYLATION", "METHYLATION", "EPIGENETIC"),
+  SPLICEOSOME =
+    c("SNRNA", "SPLICING", "SPLICEOSOME"),
+  TRANSLATION =
+    c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
+  DNA_TRANSCRIPTION =
+    c("MRNA", "TRANSCRIPTION", "POLYMERASE", "TRANSCRIBED", "GENE_EXPRESSION"),
+  CELL_CYCLE =
+    c("CELL_CYCLE", "MITOTIC", "DNA_REPLICATION", "CHROMOSOME_SEGREGATION",
+      "CHROMATID_SEGREGATION", "SPINDLE", "CELL_DIVISION",
+      "KINETOCHORE", "CENTRIOLE", "ANAPHASE")
+)
+
+# Get ranks per keyword group 
+get_ranks_for_keywords <- function(results_df, keywords) {
+  pattern <- paste(keywords, collapse = "|")  # OR across all keywords
+  results_df %>%
+    dplyr::filter(stringr::str_detect(pathway, pattern)) %>%
+    dplyr::pull(rank)
+}
+
+# Build GSEA^2 data frame
+data_df <- purrr::imap_dfr(
+  keyword_groups,
+  ~ tibble::tibble(
+    Category = .y,
+    Value    = get_ranks_for_keywords(FGSEA_results_rnk, .x)
+  )
+)
+
+print(table(data_df$Category))
+
+# KS Test (enrichment + signed ordering)
+max_rank <- max(FGSEA_results_rnk$rank, na.rm = TRUE)
+
+ks_results <- data_df %>%
+  dplyr::group_by(Category) %>%
+  dplyr::summarise(
+    n         = dplyr::n(),
+    mean_rank = mean(Value, na.rm = TRUE),
+    p_ks      = if (n > 1) {
+      # Scale ranks to [0,1] and test vs Uniform(0,1)
+      scaled_vals <- Value / max_rank
+      stats::ks.test(scaled_vals, "punif")$p.value
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    # '+' = enriched toward low ranks (top of GSEA ranking)
+    # '-' = enriched toward high ranks (bottom of GSEA ranking)
+    direction = dplyr::if_else(mean_rank <= max_rank / 2, "+", "-"),
+    # signed significance: large negative = strong '-' enrichment,
+    # large positive      = strong '+' enrichment
+    logp        = dplyr::if_else(is.na(p_ks), NA_real_, -log10(p_ks)),
+    signed_logp = dplyr::if_else(direction == "+", logp, -logp),
+    # significance stars
+    sig_flag = dplyr::case_when(
+      is.na(p_ks)        ~ "",
+      p_ks <= 0.0001     ~ "****",
+      p_ks <= 0.001      ~ "***",
+      p_ks <= 0.01       ~ "**",
+      p_ks <= 0.05       ~ "*",
+      TRUE               ~ ""
+    ),
+    label_suffix = dplyr::if_else(
+      is.na(p_ks),
+      "",
+      paste0(
+        " p = ",
+        format(p_ks, scientific = TRUE, digits = 3),
+        " (", direction, ") ",
+        sig_flag
+      )
+    )
+  ) %>%
+  dplyr::arrange(signed_logp)
+
+print(ks_results)
+
+# Use this ordering for the factor, so along the axis you go:
+# most significant '-'  --> weaker '-' --> weaker '+' --> most significant '+'
+ordered_levels <- ks_results$Category
+
+data_df$Category <- factor(
+  data_df$Category,
+  levels = ordered_levels
+)
+
+# Left-side category labels (edit right-hand side later if you like)
+custom_labels <- c(
+  OX                     = "OX",
+  DNA                    = "DNA",
+  NEURO                  = "Neuro",
+  IMMUNE                 = "Immune",
+  TISSUE_DEVELOPMENT     = "Tissue Development",
+  SENSORY_PERCEPTION     = "Sensory Perception",
+  KINASE_ACTIVITY        = "Kinase Activity",
+  CELL_DIFFERENTIATION   = "Cell Differentiation",
+  CELL_CELL_INTERACTION  = "Cell–Cell Interaction",
+  PEROXISOME             = "Peroxisome",
+  CELL_PROLIFERATION     = "Cell Proliferation",
+  PROTEIN_PROCESSING     = "Protein Processing",
+  VIRAL_PROCESSES        = "Viral Processes",
+  MICRO_RNA              = "Micro RNA",
+  STRESS_RESPONSE        = "Stress Response",
+  METABOLIC_PATHWAY      = "Metabolic Pathway",
+  MITOCHONDRIA           = "Mitochondria",
+  ORGANELLE_TRANSPORT    = "Organelle Transport",
+  ORGANELLE_ORGANIZATION = "Organelle Organization",
+  EPIGENETIC             = "Epigenetic",
+  SPLICEOSOME            = "Spliceosome",
+  TRANSLATION            = "Translation",
+  DNA_TRANSCRIPTION      = "DNA Transcription",
+  CELL_CYCLE             = "Cell Cycle"
+)
+
+# Right-side labels: p-value + direction + stars
+right_labels <- ks_results %>%
+  dplyr::mutate(
+    right_lab = 
+      # paste0(
+      # "p = ", format(p_ks, scientific = TRUE, digits = 3),
+      # " (", direction, ") ", sig_flag)
+    paste0(
+      " p = ",
+      signif(p_ks, 3),
+      " (", direction, ") ", sig_flag
+    )
+  ) %>%
+  dplyr::select(Category, right_lab) %>%
+  tibble::deframe()
+
+# Plot (x = rank, y = category; labels on left and right)
+plt <- ggplot2::ggplot(data_df, ggplot2::aes(x = Value, y = Category)) +
+  ggplot2::geom_jitter(
+    height = 0.2,
+    width  = 0,
+    ggplot2::aes(color = Category),
+    size   = 1,
+    shape  = 16
+  ) +
+  ggplot2::scale_y_discrete(
+    labels   = custom_labels,
+    sec.axis = ggplot2::dup_axis(
+      labels = right_labels[levels(data_df$Category)],
+      name   = ""
+    )
+  ) +
+  ggplot2::scale_x_continuous(
+    breaks = c(max_rank * 0.15, max_rank * 0.85),
+    labels = c("Enriched in\nRNAi", "Enriched in\nCRISPR")
+  ) +
+  ggplot2::labs(x = "Rank", y = "") +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.y.left  = ggplot2::element_text(size = 7),
+    axis.text.y.right = ggplot2::element_text(size = 7, hjust = 0),
+    axis.text.x       = ggplot2::element_text(size = 7),
+    legend.position   = "none",
+    panel.border      = ggplot2::element_rect(color = "black", fill = NA, size = 0.5),
+    panel.grid.major.y = ggplot2::element_blank(),
+    panel.grid.minor  = ggplot2::element_blank()
+  )
+
+ggsave(
+  filename = paste0(
+    path.plots,
+    "GSEA_sq_",
+    gsub(".txt", ".pdf", basename(path.input))
+  ),
+  plot   = plt,
+  width  = 6,
+  height = 4,
+  units  = "in",
+  device = cairo_pdf
+)
+
+##### Investigating drug data for better classification #####
+
+## Set paths
+path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
+path.general <- paste0(path.wd, "DataSets/General/")
+
+ctrp.inform <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
+
+
+
+
+
+
+
+
+
