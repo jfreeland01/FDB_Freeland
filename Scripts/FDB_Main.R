@@ -270,11 +270,11 @@ path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
 ## Set PLS parameters
-X_source <- "CTRP" # CRISPR or CTRP
-Y_source <- "CRISPR"   # CRISPR or CTRP
+X_source <- "CRISPR" # CRISPR or CTRP
+Y_source <- "CTRP"   # CRISPR or CTRP
 
 ncomp <- 15
-mode  <- "regression" # default = regression, symmetric = canonical
+mode  <- "canonical" # default = regression, symmetric = canonical
 
 #### 1. Execute to prep for PLS
 if(1) {
@@ -441,10 +441,11 @@ if(1) {
     
     ## Groupings
     df <- df %>%
+      
       dplyr::mutate(
         group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
           stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
           stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
           stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
@@ -780,8 +781,8 @@ if(1) {
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
           stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
           stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
           stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
@@ -1141,8 +1142,8 @@ if(1) {
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
           stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
           stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
           stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
@@ -1284,11 +1285,6 @@ if(1) {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
   }
 }
-
-
-
-
-
 
 ##### rCCA: RNAi & CTRP #####
 
@@ -1532,8 +1528,8 @@ if (1) {
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
           stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
           stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
           stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
@@ -2128,10 +2124,13 @@ ctrp.inform <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = 
 
 View(table(ctrp.inform$target_or_activity_of_compound))
 
+
+
+
 dplyr::mutate(
   group = dplyr::case_when(
-    stringr::str_detect(Loading, "^(selumetinib|PD318088|RAF265|regorafenib|PLX\\-4720|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-    stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib)$") ~ "02 EGFRi.HER2i",
+    stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+    stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
     stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
     stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
     stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
@@ -2139,16 +2138,4 @@ dplyr::mutate(
     detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
     TRUE ~ NA_character_
   ),
-  group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-  group.na = dplyr::if_else(is.na(group), 1L, 0L),
-  group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-  label.not.na = dplyr::if_else(!is.na(group), Loading, NA_character_),
-  label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
-  mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
-)
-
-
-
-
-
 
