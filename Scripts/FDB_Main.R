@@ -411,16 +411,20 @@ if(1) {
   )
 
   ## Bring in raw matrices to compute %NA later
-  CRISPR_mat <- read.delim(
-    file = paste0(path.dm, "CRISPRGeneEffect.csv"),
-    sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
-  ) %>%
-    dplyr::rename_with(~ sub(" .*", "", .))
-  
-  CTRP_mat <- read.delim(
-    file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
-  )
+  if (!exists("CRISPR_mat") || !exists("CTRP_mat")) {
+    
+    CRISPR_mat <- read.delim(
+      file = paste0(path.dm, "CRISPRGeneEffect.csv"),
+      sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
+    ) %>%
+      dplyr::rename_with(~ sub(" .*", "", .))
+    
+    CTRP_mat <- read.delim(
+      file = paste0(path.ctrp, "ctrpv2.wide.txt"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+    )
+    
+  }
   
   ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
   detect <- function(x, pattern) {
@@ -441,7 +445,6 @@ if(1) {
     
     ## Groupings
     df <- df %>%
-      
       dplyr::mutate(
         group = dplyr::case_when(
           stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
@@ -543,13 +546,13 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("^X\\d+$", names(df), value = TRUE)
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
       
-      comp1 <- "X1"
-      comp2 <- paste0("X", i)
+      comp1 <- "comp1"
+      comp2 <- paste0("comp", i)
       
       p <- ggplot2::ggplot(
         df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
@@ -597,8 +600,8 @@ path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
 ## Set PLS parameters
-X_source <- "RNAi"
-Y_source <- "CTRP"
+X_source <- "CTRP"  # RNAi or CTRP
+Y_source <- "RNAi"  # RNAi or CTRP
 
 ncomp <- 15
 mode  <- "canonical" # default = regression, symmetric = canonical
@@ -626,7 +629,8 @@ if(1) {
   RNAi_t <- RNAi %>%
     t() %>%
     data.frame() %>%
-    tibble::rownames_to_column(var = "CCLEName")
+    tibble::rownames_to_column(var = "CCLEName") %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .))
   
   RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
     dplyr::select(-CCLEName) %>%
@@ -750,16 +754,20 @@ if(1) {
   )
   
   ## Bring in raw matrices to compute %NA later
-  RNAi_mat <- read.delim(
-    file = paste0(path.dm, "D2_combined_gene_dep_scores.csv"),
-    sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
-  ) %>%
-    dplyr::rename_with(~ sub(" .*", "", .))
-  
-  CTRP_mat <- read.delim(
-    file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
-  )
+  if (!exists("RNAi_mat") || !exists("CTRP_mat")) {
+    
+    RNAi_mat <- read.delim(
+      file = paste0(path.dm, "D2_combined_gene_dep_scores.csv"),
+      sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
+    ) %>%
+      dplyr::rename_with(~ sub(" .*", "", .))
+    
+    CTRP_mat <- read.delim(
+      file = paste0(path.ctrp, "ctrpv2.wide.txt"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
+    )
+    
+  }
   
   ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
   detect <- function(x, pattern) {
@@ -872,9 +880,6 @@ if(1) {
   }
   
   ## annotate X- and Y- loadings based on actual sources
-  debugonce(annotate_rnai)
-  debugonce(annotate_ctrp)
-  
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_rnai(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_rnai(Y_loadings, "Y")
   
@@ -968,16 +973,16 @@ if (1) {
   if (Y_source == "CRISPR") Y_data <- CRISPR
   if (Y_source == "CTRP")   Y_data <- CTRP
   
-  ids <- base::intersect(base::rownames(X_data), base::rownames(Y_data))
+  ids <- intersect(rownames(X_data), rownames(Y_data))
   
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
   
-  X[] <- base::lapply(X, base::as.numeric)
-  Y[] <- base::lapply(Y, base::as.numeric)
+  X[] <- lapply(X, as.numeric)
+  Y[] <- lapply(Y, as.numeric)
   
-  X <- base::as.matrix(X)
-  Y <- base::as.matrix(Y)
+  X <- as.matrix(X)
+  Y <- as.matrix(Y)
 }
 
 #### 2. Execute to run RCCA and save output files (requires Step 1)
@@ -988,10 +993,10 @@ if (1) {
     
     grid1 <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
     grid2 <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
-    ncomp_tune <- base::min(5L, ncomp)  # tune only first few components
+    ncomp_tune <- min(5L, ncomp)  # tune only first few components
     
-    base::set.seed(1L)
-    tune_time <- base::system.time({
+    set.seed(1L)
+    tune_time <- system.time({
       tune.out <- mixOmics::tune.rcc(
         X          = X,
         Y          = Y,
@@ -1002,9 +1007,9 @@ if (1) {
       )
     })
     
-    base::print(tune_time)                # show how long tuning took
-    base::print(tune.out$opt.lambda1)     # chosen lambda1
-    base::print(tune.out$opt.lambda2)     # chosen lambda2
+    print(tune_time)                # show how long tuning took
+    print(tune.out$opt.lambda1)     # chosen lambda1
+    print(tune.out$opt.lambda2)     # chosen lambda2
     
     lambda1 <- tune.out$opt.lambda1
     lambda2 <- tune.out$opt.lambda2
@@ -1017,8 +1022,8 @@ if (1) {
   
   ## For saving files
   file_tag <- paste0(
-    "RCCA_lambda1.", base::format(lambda1, digits = 3),
-    "_lambda2.", base::format(lambda2, digits = 3),
+    "RCCA_lambda1.", format(lambda1, digits = 3),
+    "_lambda2.", format(lambda2, digits = 3),
     "_X.", X_source, "_Y.", Y_source
   )
   
@@ -1040,21 +1045,21 @@ if (1) {
   y.variates <- data.frame(rcca_fit$variates$Y) %>%
     tibble::rownames_to_column(var = "Score")
   
-  x.loadings <- base::data.frame(rcca_fit$loadings$X) %>%
+  x.loadings <- data.frame(rcca_fit$loadings$X) %>%
     tibble::rownames_to_column(var = "Loading") %>%
     dplyr::arrange(X1)
-  y.loadings <- base::data.frame(rcca_fit$loadings$Y) %>%
+  y.loadings <- data.frame(rcca_fit$loadings$Y) %>%
     tibble::rownames_to_column(var = "Loading") %>%
     dplyr::arrange(X1)
   
-  variates.X.Y <- base::merge(
+  variates.X.Y <- merge(
     x = x.variates, y = y.variates, by = "Score",
     suffixes = c(paste0(".", X_source), paste0(".", Y_source))
   )
   
   ## Canonical correlations data.frame
-  cancor.df <- base::data.frame(
-    comp                   = base::seq_along(rcca_fit$cor),
+  cancor.df <- data.frame(
+    comp                   = seq_along(rcca_fit$cor),
     canonical_correlation  = rcca_fit$cor
   )
   
@@ -1330,10 +1335,10 @@ if (1) {
   
   RNAi_t <- RNAi %>%
     t() %>%
-    base::data.frame() %>%
+    data.frame() %>%
     tibble::rownames_to_column(var = "CCLEName")
   
-  RNAi_t_ModelID <- base::merge(models, RNAi_t, by = "CCLEName") %>%
+  RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
     dplyr::select(-CCLEName) %>%
     tibble::column_to_rownames(var = "ModelID")
   
@@ -1344,25 +1349,25 @@ if (1) {
   if (Y_source == "RNAi") Y_data <- RNAi_t_ModelID
   if (Y_source == "CTRP") Y_data <- CTRP
   
-  ids <- base::intersect(base::rownames(X_data), base::rownames(Y_data))
+  ids <- intersect(rownames(X_data), rownames(Y_data))
   
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
   
-  X[] <- base::lapply(X, base::as.numeric)
-  Y[] <- base::lapply(Y, base::as.numeric)
+  X[] <- lapply(X, as.numeric)
+  Y[] <- lapply(Y, as.numeric)
   
-  X <- base::as.matrix(X)
-  Y <- base::as.matrix(Y)
+  X <- as.matrix(X)
+  Y <- as.matrix(Y)
   
   ## Enforce reasonable number of canonical components
-  max_possible <- base::min(
-    base::nrow(X) - 1L,
-    base::ncol(X),
-    base::ncol(Y)
+  max_possible <- min(
+    nrow(X) - 1L,
+    ncol(X),
+    ncol(Y)
   )
-  ncomp <- base::min(ncomp, max_possible)
-  base::cat("Using", ncomp, "canonical components (max possible =", max_possible, ")\n")
+  ncomp <- min(ncomp, max_possible)
+  cat("Using", ncomp, "canonical components (max possible =", max_possible, ")\n")
 }
 
 #### 2. Execute to run RCCA and save output files (requires Step 1)
@@ -1373,10 +1378,10 @@ if (1) {
     
     grid1 <- c(0.10, 0.20, 0.30)  # candidate lambdas for X (RNAi)
     grid2 <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y (CTRP)
-    ncomp_tune <- base::min(5L, ncomp)  # tune only first few components
+    ncomp_tune <- min(5L, ncomp)  # tune only first few components
     
-    base::set.seed(1L)
-    tune_time <- base::system.time({
+    set.seed(1L)
+    tune_time <- system.time({
       tune.out <- mixOmics::tune.rcc(
         X          = X,
         Y          = Y,
@@ -1387,9 +1392,9 @@ if (1) {
       )
     })
     
-    base::print(tune_time)                # show how long tuning took
-    base::print(tune.out$opt.lambda1)     # chosen lambda1
-    base::print(tune.out$opt.lambda2)     # chosen lambda2
+    print(tune_time)                # show how long tuning took
+    print(tune.out$opt.lambda1)     # chosen lambda1
+    print(tune.out$opt.lambda2)     # chosen lambda2
     
     lambda1 <- tune.out$opt.lambda1
     lambda2 <- tune.out$opt.lambda2
@@ -1402,8 +1407,8 @@ if (1) {
   
   ## For saving files
   file_tag <- paste0(
-    "RCCA_lambda1.", base::format(lambda1, digits = 3),
-    "_lambda2.", base::format(lambda2, digits = 3),
+    "RCCA_lambda1.", format(lambda1, digits = 3),
+    "_lambda2.", format(lambda2, digits = 3),
     "_X.", X_source, "_Y.", Y_source
   )
   
@@ -1417,29 +1422,29 @@ if (1) {
   )
   
   ## Canonical correlations per component (full spectrum; first ncomp used)
-  base::print(rcca_fit$cor[1:ncomp])
+  print(rcca_fit$cor[1:ncomp])
   
   ## Extract from rcca_fit object
-  x.variates <- base::data.frame(rcca_fit$variates$X) %>%
+  x.variates <- data.frame(rcca_fit$variates$X) %>%
     tibble::rownames_to_column(var = "Score")
-  y.variates <- base::data.frame(rcca_fit$variates$Y) %>%
+  y.variates <- data.frame(rcca_fit$variates$Y) %>%
     tibble::rownames_to_column(var = "Score")
   
-  x.loadings <- base::data.frame(rcca_fit$loadings$X) %>%
+  x.loadings <- data.frame(rcca_fit$loadings$X) %>%
     tibble::rownames_to_column(var = "Loading") %>%
     dplyr::arrange(comp1)
-  y.loadings <- base::data.frame(rcca_fit$loadings$Y) %>%
+  y.loadings <- data.frame(rcca_fit$loadings$Y) %>%
     tibble::rownames_to_column(var = "Loading") %>%
     dplyr::arrange(comp1)
   
-  variates.X.Y <- base::merge(
+  variates.X.Y <- merge(
     x = x.variates, y = y.variates, by = "Score",
     suffixes = c(paste0(".", X_source), paste0(".", Y_source))
   )
   
   ## Canonical correlations data.frame
-  cancor.df <- base::data.frame(
-    comp                  = base::seq_along(rcca_fit$cor),
+  cancor.df <- data.frame(
+    comp                  = seq_along(rcca_fit$cor),
     canonical_correlation = rcca_fit$cor
   )
   
@@ -1561,8 +1566,8 @@ if (1) {
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "BCL2"), "BCL2.", target.category))
     
     ## %NA per compound using non-imputed CTRP matrix
-    percent.nas <- base::as.data.frame(base::colMeans(base::is.na(CTRP_mat)) * 100)
-    base::names(percent.nas) <- "percent.nas"
+    percent.nas <- as.data.frame(colMeans(is.na(CTRP_mat)) * 100)
+    names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
     df <- dplyr::left_join(df, percent.nas, by = "Loading")
     
@@ -1580,9 +1585,9 @@ if (1) {
     gene.info <- gene.info.all[gene.info.all$Symbol_from_nomenclature_authority != "-", ]
     gene.info.abr <- dplyr::select(gene.info, Symbol, description)
     
-    df$Loading <- base::sub("\\.\\..*$", "", df$Loading)
+    df$Loading <- sub("\\.\\..*$", "", df$Loading)
     
-    df <- base::merge(df, gene.info.abr, by.x = "Loading", by.y = "Symbol", all.x = TRUE)
+    df <- merge(df, gene.info.abr, by.x = "Loading", by.y = "Symbol", all.x = TRUE)
     
     ## Groupings
     df <- df %>%
@@ -1610,8 +1615,8 @@ if (1) {
       dplyr::arrange(dplyr::desc(group.na))
     
     ## %NA using RNAi matrix
-    percent.nas <- base::as.data.frame(base::colMeans(base::is.na(RNAi_mat)) * 100)
-    base::names(percent.nas) <- "percent.nas"
+    percent.nas <- as.data.frame(colMeans(is.na(RNAi_mat)) * 100)
+    names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
     df <- dplyr::left_join(df, percent.nas, by = "Loading")
     
@@ -1627,7 +1632,7 @@ if (1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- base::grep("^comp\\d+$", base::names(df), value = TRUE)
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
