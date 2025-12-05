@@ -1011,13 +1011,13 @@ lambda2_manual <- 0.10    # default penalty on Y
 if (1) {
   
   ## Read in data and set row names
-  CRISPR <- utils::read.delim(
+  CRISPR <- read.delim(
     file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
   ) %>%
     dplyr::rename_with(~ sub("\\.\\..*", "", .))
   
-  CTRP <- utils::read.delim(
+  CTRP <- read.delim(
     file = paste0(path.ctrp, "ctrpv2.wide_culled80_MFImputed.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
   )
@@ -1161,26 +1161,30 @@ if (1) {
 if(1) {
   
   ## Load saved loading files
-  X_loadings <- utils::read.delim(
+  X_loadings <- read.delim(
     file = paste0(path.rcca, file_tag, "_X.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
-  Y_loadings <- utils::read.delim(
+  Y_loadings <- read.delim(
     file = paste0(path.rcca, file_tag, "_Y.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
   
   ## Bring in raw matrices to compute %NA later
-  CRISPR_mat <- read.delim(
-    file = paste0(path.dm, "CRISPRGeneEffect.csv"),
-    sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
-  ) %>%
-    dplyr::rename_with(~ sub(" .*", "", .))
-  
-  CTRP_mat <- read.delim(
-    file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
-  )
+  if (!exists("CRISPR_mat") || !exists("CTRP_mat")) {
+    
+    CRISPR_mat <- read.delim(
+      file = paste0(path.dm, "CRISPRGeneEffect.csv"),
+      sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
+    ) %>%
+      dplyr::rename_with(~ sub(" .*", "", .))
+    
+    CTRP_mat <- read.delim(
+      file = paste0(path.ctrp, "ctrpv2.wide.txt"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+    )
+    
+  }
   
   ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
   detect <- function(x, pattern) {
@@ -1381,18 +1385,18 @@ lambda2_manual <- 0.10    # penalty on Y
 if (1) {
   
   ## Read in data
-  RNAi <- utils::read.delim(
+  RNAi <- read.delim(
     file = paste0(path.dm, "D2_combined_gene_dep_scores_MFImputed.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
   )
   
-  CTRP <- utils::read.delim(
+  CTRP <- read.delim(
     file = paste0(path.ctrp, "ctrpv2.wide_culled80_MFImputed.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
   )
   
   ## Convert RNAi sample nomenclature (CCLEName -> ModelID via Model.csv)
-  models <- utils::read.delim(
+  models <- read.delim(
     file = paste0(path.dm,"Model.csv"),
     sep = ",", stringsAsFactors = FALSE, check.names = FALSE
   ) %>%
@@ -1488,7 +1492,7 @@ if (1) {
   
   ## Canonical correlations per component (full spectrum; first ncomp used)
   print(rcca_fit$cor[1:ncomp])
-  
+
   ## Extract from rcca_fit object
   x.variates <- data.frame(rcca_fit$variates$X) %>%
     tibble::rownames_to_column(var = "Score")
@@ -1497,10 +1501,10 @@ if (1) {
   
   x.loadings <- data.frame(rcca_fit$loadings$X) %>%
     tibble::rownames_to_column(var = "Loading") %>%
-    dplyr::arrange(comp1)
+    dplyr::arrange(X1)
   y.loadings <- data.frame(rcca_fit$loadings$Y) %>%
     tibble::rownames_to_column(var = "Loading") %>%
-    dplyr::arrange(comp1)
+    dplyr::arrange(X1)
   
   variates.X.Y <- merge(
     x = x.variates, y = y.variates, by = "Score",
@@ -1509,44 +1513,44 @@ if (1) {
   
   ## Canonical correlations data.frame
   cancor.df <- data.frame(
-    comp                  = seq_along(rcca_fit$cor),
-    canonical_correlation = rcca_fit$cor
+    comp                   = seq_along(rcca_fit$cor),
+    canonical_correlation  = rcca_fit$cor
   )
   
   ## Save files
   if (!dir.exists(path.rcca)) dir.create(path.rcca, recursive = TRUE)
   
-  utils::write.table(
+  write.table(
     x = x.variates,
     file = paste0(path.rcca, file_tag, "_X.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = y.variates,
     file = paste0(path.rcca, file_tag, "_Y.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = variates.X.Y,
     file = paste0(path.rcca, file_tag, "_X.Y.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = x.loadings,
     file = paste0(path.rcca, file_tag, "_X.loadings.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = y.loadings,
     file = paste0(path.rcca, file_tag, "_Y.loadings.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = cancor.df,
     file = paste0(path.rcca, file_tag, "_canonical_correlations.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
@@ -1557,26 +1561,30 @@ if (1) {
 if (1) {
   
   ## Load saved loading files
-  X_loadings <- utils::read.delim(
+  X_loadings <- read.delim(
     file = paste0(path.rcca, file_tag, "_X.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
-  Y_loadings <- utils::read.delim(
+  Y_loadings <- read.delim(
     file = paste0(path.rcca, file_tag, "_Y.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
-  
+ 
   ## Bring in raw matrices to compute %NA later
-  RNAi_mat <- utils::read.delim(
-    file = paste0(path.dm, "D2_combined_gene_dep_scores.csv"),
-    sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
-  ) %>%
-    dplyr::rename_with(~ sub(" .*", "", .))
-  
-  CTRP_mat <- utils::read.delim(
-    file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
-  )
+  if (!exists("RNAi_mat") || !exists("CTRP_mat")) {
+    
+    RNAi_mat <- read.delim(
+      file = paste0(path.dm, "D2_combined_gene_dep_scores.csv"),
+      sep = ",", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1
+    ) %>%
+      dplyr::rename_with(~ sub(" .*", "", .))
+    
+    CTRP_mat <- read.delim(
+      file = paste0(path.ctrp, "ctrpv2.wide.txt"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
+    )
+    
+  }
   
   ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
   detect <- function(x, pattern) {
@@ -1643,7 +1651,7 @@ if (1) {
   ### Annotation for a RNAi loadings frame (gene metadata buckets)
   annotate_rnai <- function(df, side_label) {
     
-    gene.info.all <- utils::read.delim(
+    gene.info.all <- read.delim(
       file = paste0(path.general, "Homo_sapiens.gene_info.20251028"),
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
