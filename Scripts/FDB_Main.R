@@ -980,7 +980,7 @@ if(1) {
 ##### rCCA: CRISPR & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -1039,10 +1039,6 @@ if (1) {
   
   X <- as.matrix(X)
   Y <- as.matrix(Y)
-}
-
-#### 2. Execute to run RCCA and save output files (requires Step 1)
-if (1) {
   
   ## Choose lambdas: either tuned or manual
   if (tune_lambda) {
@@ -1082,7 +1078,11 @@ if (1) {
     "_lambda2.", format(lambda2, digits = 3),
     "_X.", X_source, "_Y.", Y_source
   )
-  
+}
+
+#### 2. Execute to run RCCA and save output files (requires Step 1)
+if (1) {
+
   ## Run RCCA
   rcca_fit <- mixOmics::rcc(
     X       = X,
@@ -1336,8 +1336,6 @@ if(1) {
   ## If side is CTRP: color by target.category, label by target.category
   ## If side is CRISPR: color by group, label by group
   
-  debugonce(plot_loadings_side)
-  
   if (X_source == "CTRP") {
     plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "target.category")
   } else {
@@ -1430,17 +1428,7 @@ if (1) {
   Y <- as.matrix(Y)
   
   ## Enforce reasonable number of canonical components
-  max_possible <- min(
-    nrow(X) - 1L,
-    ncol(X),
-    ncol(Y)
-  )
-  ncomp <- min(ncomp, max_possible)
-  cat("Using", ncomp, "canonical components (max possible =", max_possible, ")\n")
-}
-
-#### 2. Execute to run RCCA and save output files (requires Step 1)
-if (1) {
+  ncomp <- 15
   
   ## Choose lambdas: either tuned or manual
   if (tune_lambda) {
@@ -1480,6 +1468,10 @@ if (1) {
     "_lambda2.", format(lambda2, digits = 3),
     "_X.", X_source, "_Y.", Y_source
   )
+}
+
+#### 2. Execute to run RCCA and save output files (requires Step 1)
+if (1) {
   
   ## Run RCCA
   rcca_fit <- mixOmics::rcc(
@@ -1748,7 +1740,6 @@ if (1) {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
   }
 }
-
 
 ##### Max loading scatter plot #####
 
