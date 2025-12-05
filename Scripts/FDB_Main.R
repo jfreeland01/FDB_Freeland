@@ -14,8 +14,17 @@ if(1) {
 
 #### Imputation: CRISPR (NA's in Data) ####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.wd     <- paste0(path.OS, "WD_FDB_Freeland/")
 file.crispr <- paste0(path.wd, "DataSets/DepMap_25Q3/CRISPRGeneEffect.csv")
 
 ## Pull in data
@@ -61,7 +70,7 @@ CRISPR_mf.imp_t <- as.data.frame(
 ## Save 
 write.table(
   x = CRISPR_mf.imp, 
-  file = gsub(".csv$","_MFImputed.txt",file.crispr), 
+  file = gsub(".csv$","_MFImputed.txt", file.crispr), 
   quote = F, 
   sep = "\t",
   col.names = NA
@@ -69,7 +78,7 @@ write.table(
 
 write.table(
   x = CRISPR_mf.imp_t, 
-  file = gsub(".csv$","_MFImputed_sg.txt",file.crispr), 
+  file = gsub(".csv$","_MFImputed_sg.txt", file.crispr), 
   quote = F, 
   sep = "\t",
   col.names = NA
@@ -77,8 +86,17 @@ write.table(
 
 #### Imputation: RNAi (NA's in Data) ####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.wd   <- paste0(path.OS, "WD_FDB_Freeland/")
 file.rnai <- paste0(path.wd, "DataSets/DepMap_25Q3/D2_combined_gene_dep_scores.csv")
 
 ## Pull in data
@@ -98,13 +116,11 @@ table(colSums(is.na(RNAi)))
 # 1059  1583  2053  3929  3930  3931  3932  3947  3949  3950  4560  4587  4601  
 # 1     6     40    60    12    3     7     3     1     1     2     1     1     
 
-
 # 4610  4639  5402  5404  5434  6173  6218  8922  8923  8924  8925  8926  8927
 # 2     1     1     1     1     96    11     2    18    57    54    13    12
 
 # 8928  8943  8967 11130 11132 11220 11630 13697 14311 
 # 1     1     1    1     1     1     1     1     1
-
 
 ## Random forrest
 doParallel::registerDoParallel(cores = detectCores() - 2)
@@ -126,7 +142,7 @@ RNAi_mf.imp_t <- as.data.frame(
 ## Save 
 write.table(
   x = RNAi_mf.imp, 
-  file = gsub(".csv$","_MFImputed.txt",file.rnai), 
+  file = gsub(".csv$","_MFImputed.txt", file.rnai), 
   quote = F, 
   sep = "\t",
   col.names = NA
@@ -142,8 +158,17 @@ write.table(
 
 ##### Imputation: CTRP (NA's in Data) #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.wd   <- paste0(path.OS, "WD_FDB_Freeland/")
 path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 
@@ -171,8 +196,9 @@ not.mapped.celllines <- not.mapped.celllines[,1:3] %>% dplyr::distinct()
 
 write.table(
   x = ctrp.curves,
-  file = paste0(path.ctrp,"ctrp.curves.txt"),
-  quote = F, col.names=T, row.names = F, sep = "\t")
+  file = paste0(path.ctrp, "ctrp.curves.txt"),
+  quote = F, col.names=T, row.names = F, sep = "\t"
+  )
 
 ## Trim and average data frame
 ctrp.curves.abr <- ctrp.curves %>% 
@@ -192,7 +218,8 @@ ctrpv2.ave.wide <- reshape(
   idvar = "DepMap_ID",
   v.names= c("avg"),
   timevar = "cpd_name",
-  direction = "wide")
+  direction = "wide"
+  )
 
 names(ctrpv2.ave.wide) <- gsub("^avg\\.","",names(ctrpv2.ave.wide))
 
@@ -201,7 +228,8 @@ file.ctrpv2.wide = paste0(path.ctrp,"ctrpv2.wide.txt")
 write.table(
   x = ctrpv2.ave.wide, 
   file = file.ctrpv2.wide,
-  quote = F, col.names=T, row.names = F, sep = "\t")
+  quote = F, col.names=T, row.names = F, sep = "\t"
+  )
 
 ctrpv2 <- ctrpv2.ave.wide
 
@@ -209,9 +237,9 @@ ctrpv2 <- ctrpv2.ave.wide
 ctrpv3 <-  ctrpv2
 
 ## Rename one entry with no DepMap_ID
-ctrpv3$DepMap_ID <-  ifelse(is.na(ctrpv3$DepMap_ID),"no.depmap.match",ctrpv3$DepMap_ID)
+ctrpv3$DepMap_ID  <- ifelse(is.na(ctrpv3$DepMap_ID),"no.depmap.match",ctrpv3$DepMap_ID)
 row.names(ctrpv3) <- ctrpv3$DepMap_ID
-ctrpv3 <-  ctrpv3[,-1]
+ctrpv3 <- ctrpv3[,-1]
 
 ## Remove drugs with > 80% NAs
 percent.nas <- as.data.frame(colMeans(is.na(ctrpv3)) * 100)
@@ -261,11 +289,20 @@ write.table(
 
 ##### PLS: CRISPR & CTRP #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
-path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
-path.pls  <- paste0(path.wd, "DataSets/PLS/")
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
 path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
@@ -591,11 +628,20 @@ if(1) {
 
 ##### PLS: RNAi & CTRP #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
-path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
-path.pls  <- paste0(path.wd, "DataSets/PLS/")
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
 path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
@@ -774,8 +820,9 @@ if(1) {
     stringr::str_detect(ifelse(is.na(x), "", x), stringr::regex(pattern, ignore_case = TRUE))
   }
   
-  ### Annotation for a CTRP loadings frame (drug metadata buckets)
+  ### Annotation for CTRP loadings file (drug metadata buckets)
   annotate_ctrp <- function(df, side_label) {
+    
     ctrp.inform <- read.delim(
       file = paste0(path.ctrp, "CTRPv2.0._INFORMER_SET.txt"),
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
@@ -932,11 +979,20 @@ if(1) {
 
 ##### rCCA: CRISPR & CTRP #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd      <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
 path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
-path.rcca     <- paste0(path.wd, "DataSets/rCCA/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
 path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
@@ -1064,37 +1120,37 @@ if (1) {
   )
   
   ## Save files
-  utils::write.table(
+  write.table(
     x = x.variates,
     file = paste0(path.rcca, file_tag, "_X.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = y.variates,
     file = paste0(path.rcca, file_tag, "_Y.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = variates.X.Y,
     file = paste0(path.rcca, file_tag, "_X.Y.variates.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = x.loadings,
     file = paste0(path.rcca, file_tag, "_X.loadings.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = y.loadings,
     file = paste0(path.rcca, file_tag, "_Y.loadings.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
-  utils::write.table(
+  write.table(
     x = cancor.df,
     file = paste0(path.rcca, file_tag, "_canonical_correlations.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
@@ -1293,8 +1349,17 @@ if(1) {
 
 ##### rCCA: RNAi & CTRP #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd      <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
 path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
 path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
@@ -1518,9 +1583,10 @@ if (1) {
     stringr::str_detect(ifelse(is.na(x), "", x), stringr::regex(pattern, ignore_case = TRUE))
   }
   
-  ### Annotation for a CTRP loadings frame (drug metadata buckets)
+  ### Annotation for CTRP loadings file (drug metadata buckets)
   annotate_ctrp <- function(df, side_label) {
-    ctrp.inform <- utils::read.delim(
+    
+    ctrp.inform <- read.delim(
       file = paste0(path.ctrp, "CTRPv2.0._INFORMER_SET.txt"),
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
@@ -1542,12 +1608,12 @@ if (1) {
           detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
           TRUE ~ NA_character_
         ),
-        group.atp5       = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-        group.na         = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na    = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na     = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
+        group.na = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
-        mix.flag         = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
+        mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
@@ -1678,12 +1744,21 @@ if (1) {
 
 ##### Max loading scatter plot #####
 
-## Set Paths (same as above section)
-path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.pls  <- paste0(path.wd, "DataSets/PLS/")
-path.rcca <- paste0(path.wd, "DataSets/rCCA/")
-path.plots   <- paste0(path.wd, "Plots/")
-path.max <- paste0(path.wd, "DataSets/MaxLoading/")
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd     <- paste0(path.OS, "WD_FDB_Freeland/")
+path.pls    <- paste0(path.wd, "DataSets/PLS/")
+path.rcca   <- paste0(path.wd, "DataSets/rCCA/")
+path.plots  <- paste0(path.wd, "Plots/")
+path.max    <- paste0(path.wd, "DataSets/MaxLoading/")
 
 ## set dim red technique. PLS, rCCA
 DimRedTec <- "PLS"
@@ -1812,9 +1887,18 @@ if(1){
 
 ##### GSEA #####
 
-### Set paths and read functions
-path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.max <- paste0(path.wd, "DataSets/MaxLoading/")
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.max     <- paste0(path.wd, "DataSets/MaxLoading/")
 path.scripts <- "/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/"
 
 source(paste0(path.scripts, "FGSEA_functions.R"))
@@ -1875,8 +1959,17 @@ write.table(FGSEA_results_rnk,
 
 ##### GSEA^2 #####
 
-## Set Paths
-path.wd    <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd    <- paste0(path.OS, "WD_FDB_Freeland/")
 path.max   <- paste0(path.wd, "DataSets/MaxLoading/")
 path.plots <- paste0(path.wd, "Plots/")
 
@@ -2120,27 +2213,20 @@ ggsave(
 
 ##### Investigating drug data for better classification #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Linux" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
 ## Set paths
-path.wd   <- "/Users/jack/Library/CloudStorage/Box-Box/WD_FDB_Freeland/"
-path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
-ctrp.inform <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
+ctrp.inform  <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 
 View(table(ctrp.inform$target_or_activity_of_compound))
-
-
-
-
-dplyr::mutate(
-  group = dplyr::case_when(
-    stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-    stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
-    stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
-    stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
-    stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
-    stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
-    detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
-    TRUE ~ NA_character_
-  ),
-
