@@ -1,0 +1,7 @@
+To-do list 
+
+- expand labeling of drug sets
+- visusally inspect where the clusters are tighter. potentially make algorithym to determine that either on a euclideun space or on one dimensional. 
+	- one dimensionsal might also be worth to then measure the distance from the origin/center
+
+- do something similar / do a box plot for the samples of the scores/variates of the samples on each components to try and explain what is going on (bar plots, sup figure 6b)

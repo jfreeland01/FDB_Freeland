@@ -290,7 +290,7 @@ write.table(
 ##### PLS: CRISPR & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -1306,13 +1306,13 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    comp_cols <- grep("X", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
       
-      comp1 <- "comp1"
-      comp2 <- paste0("comp", i)
+      comp1 <- "X1"
+      comp2 <- paste0("X", i)
       
       p <- ggplot2::ggplot(
         df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
