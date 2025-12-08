@@ -311,7 +311,7 @@ X_source <- "CRISPR" # CRISPR or CTRP
 Y_source <- "CTRP"   # CRISPR or CTRP
 
 ncomp <- 15
-mode  <- "canonical" # default = regression, symmetric = canonical
+mode  <- "regression" # default = regression, symmetric = canonical
 
 #### 1. Execute to prep for PLS
 if(1) {
@@ -583,25 +583,33 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    comp_cols <- grep("comp", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
       
       comp1 <- "comp1"
       comp2 <- paste0("comp", i)
-      
-      p <- ggplot2::ggplot(
-        df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
+
+      p <- ggplot(
+        df,
+        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
       ) +
-        ggplot2::geom_point(size = 2.5) +
-        ggrepel::geom_text_repel(size = 2) +
-        ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
-        ggplot2::theme_bw(base_size = 10)
+        geom_point(size = 2.5) +
+        
+        # Only label rows where color_col is NOT NA
+        geom_text_repel(
+          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
+          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          size = 2
+        ) +
+        
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        scale_color_manual(values = my_colors, na.value = "grey80") +
+        theme_bw(base_size = 10)
       
-      ggplot2::ggsave(
+      ggsave(
         filename = paste0(
           path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
         ),
@@ -610,26 +618,26 @@ if(1) {
     }
   }
   
-  ## If side is CTRP: color by target.category, label by target.category
-  ## If side is CRISPR: color by group, label by group
+  ## If side is CTRP: color by target.category, label by Loading
+  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "target.category")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "group")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
-    
+  
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "target.category")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
 }
 
 ##### PLS: RNAi & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -650,7 +658,7 @@ X_source <- "CTRP"  # RNAi or CTRP
 Y_source <- "RNAi"  # RNAi or CTRP
 
 ncomp <- 15
-mode  <- "canonical" # default = regression, symmetric = canonical
+mode  <- "regression" # default = regression, symmetric = canonical
 
 #### 1. Execute to prep for PLS
 if(1) {
@@ -935,24 +943,33 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    comp_cols <- grep("comp", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
+      
       comp1 <- "comp1"
       comp2 <- paste0("comp", i)
       
-      p <- ggplot2::ggplot(
-        df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
+      p <- ggplot(
+        df,
+        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
       ) +
-        ggplot2::geom_point(size = 2.5) +
-        ggrepel::geom_text_repel(size = 2) +
-        ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
-        ggplot2::theme_bw(base_size = 10)
+        geom_point(size = 2.5) +
+        
+        # Only label rows where color_col is NOT NA
+        geom_text_repel(
+          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
+          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          size = 2
+        ) +
+        
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        scale_color_manual(values = my_colors, na.value = "grey80") +
+        theme_bw(base_size = 10)
       
-      ggplot2::ggsave(
+      ggsave(
         filename = paste0(
           path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
         ),
@@ -961,19 +978,19 @@ if(1) {
     }
   }
   
-  ## - If side is CTRP: color by target.category, label by target.category
-  ## - If side is CRISPR: color by group, label by group
+  ## If side is CTRP: color by target.category, label by Loading
+  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "target.category")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "group")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "target.category")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
 }
 
@@ -1157,7 +1174,7 @@ if (1) {
   )
 }
 
-#### 3. Execute to plot RCCA (requires Step 2)
+#### 3. Execute to plot RCCA (requires Step 1)
 if(1) {
   
   ## Load saved loading files
@@ -1305,6 +1322,7 @@ if(1) {
   my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
+  
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
     comp_cols <- grep("X", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
@@ -1314,17 +1332,25 @@ if(1) {
       comp1 <- "X1"
       comp2 <- paste0("X", i)
       
-      p <- ggplot2::ggplot(
-        df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
+      p <- ggplot(
+        df,
+        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
       ) +
-        ggplot2::geom_point(size = 2.5) +
-        ggrepel::geom_text_repel(size = 2) +
-        ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
-        ggplot2::theme_bw(base_size = 10)
+        geom_point(size = 2.5) +
+        
+        # Only label rows where color_col is NOT NA
+        geom_text_repel(
+          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
+          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          size = 2
+        ) +
+        
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        scale_color_manual(values = my_colors, na.value = "grey80") +
+        theme_bw(base_size = 10)
       
-      ggplot2::ggsave(
+      ggsave(
         filename = paste0(
           path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
         ),
@@ -1333,26 +1359,26 @@ if(1) {
     }
   }
   
-  ## If side is CTRP: color by target.category, label by target.category
-  ## If side is CRISPR: color by group, label by group
+  ## If side is CTRP: color by target.category, label by Loading
+  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "target.category")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "group")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "target.category")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
 }
 
 ##### rCCA: RNAi & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -1698,25 +1724,33 @@ if (1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    comp_cols <- grep("X", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
       
-      comp1 <- "comp1"
-      comp2 <- paste0("comp", i)
+      comp1 <- "X1"
+      comp2 <- paste0("X", i)
       
-      p <- ggplot2::ggplot(
-        df, ggplot2::aes_string(x = comp1, y = comp2, color = color_col, label = label_col)
+      p <- ggplot(
+        df,
+        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
       ) +
-        ggplot2::geom_point(size = 2.5) +
-        ggrepel::geom_text_repel(size = 2) +
-        ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
-        ggplot2::theme_bw(base_size = 10)
+        geom_point(size = 2.5) +
+        
+        # Only label rows where color_col is NOT NA
+        geom_text_repel(
+          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
+          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          size = 2
+        ) +
+        
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
+        scale_color_manual(values = my_colors, na.value = "grey80") +
+        theme_bw(base_size = 10)
       
-      ggplot2::ggsave(
+      ggsave(
         filename = paste0(
           path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
         ),
@@ -1725,19 +1759,19 @@ if (1) {
     }
   }
   
-  ## If side is CTRP: color by target.category, label by target.category
-  ## If side is RNAi: color by group, label by group
+  ## If side is CTRP: color by target.category, label by Loading
+  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "target.category")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "group")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "target.category")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "group")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
 }
 
@@ -2229,3 +2263,226 @@ path.general <- paste0(path.wd, "DataSets/General/")
 ctrp.inform  <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 
 View(table(ctrp.inform$target_or_activity_of_compound))
+##### TIDY UP: Group distance diagnostics from loadings #####
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.ctrp    <- paste0(path.wd, "DataSets/CTRPv2/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.general <- paste0(path.wd, "DataSets/General/")
+
+## Which side of the PLS to analyse
+side_to_use <- "X"        # "X" or "Y"
+
+## What type of data this side corresponds to
+source_type <- "CTRP"   # "CRISPR" or "CTRP"
+
+## Path to the loadings file you want to analyse
+loadings_path <- paste0(path.pls, "PLS_Mode.canonical_X.CRISPR_Y.CTRP_Y.loadings.txt")
+
+if (1) {
+
+  ## Which column encodes the groups you used for color. CRISPR = group, CTRP = target.category
+  color_col <- if (source_type == "CTRP") "target.category" else "group"
+  
+  ## Read and annotate loadings
+  loadings_raw <- read.delim(
+    file = loadings_path,
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  
+  detect <- function(x, pattern) {
+    stringr::str_detect(ifelse(is.na(x), "", x), stringr::regex(pattern, ignore_case = TRUE))
+  }
+  
+  annotate_ctrp <- function(df, side_label) {
+    
+    ctrp.inform <- read.delim(
+      file = paste0(path.ctrp, "CTRPv2.0._INFORMER_SET.txt"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+    )
+    
+    ## Map compound name -> target info
+    lk <- match(df$Loading, ctrp.inform$cpd_name)
+    df$drug.target <- ctrp.inform$target_or_activity_of_compound[lk]
+    
+    ## Groupings
+    df <- df %>%
+      dplyr::mutate(
+        group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
+          stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
+          stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
+          stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
+          stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
+          detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
+          TRUE ~ NA_character_
+        )
+      )
+    
+    ## Target-category bucketing
+    df <- df %>%
+      dplyr::mutate(target.category = NA_character_) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA damage"), "DNA.damage", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "(micro|mi)rotubule"), "microtubule", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "polo\\-like kinase 1|\\bPLK1\\b"), "PLK1", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "polo\\-like kinase 2|\\bPLK2\\b"), "PLK2", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "aurora kinase"), "aurora", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA methyltransferase"), "DNA meth", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA replication"), "DNA rep", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "nicotinamide phosphoribosyltransferase|\\bNAMPT\\b"), "NAMPT", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "dihydrofolate reductase|\\bDHFR\\b"), "DHFR", target.category)) %>%
+      dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "BCL2"), "BCL2.", target.category))
+    
+    df
+  }
+  
+  ### Annotation for CRISPR loadings file 
+  annotate_crispr <- function(df, side_label) {
+    
+    ## Adjusting gene nomenclature
+    gene.info.all <- read.delim(
+      file = paste0(path.general, "Homo_sapiens.gene_info.20251028"),
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+    )
+    gene.info <- gene.info.all[gene.info.all$Symbol_from_nomenclature_authority != "-", ]
+    gene.info.abr <- dplyr::select(gene.info, Symbol, description)
+    
+    df$Loading <- sub("\\.\\..*$", "", df$Loading)
+    
+    df <- merge(df, gene.info.abr, by.x = "Loading", by.y = "Symbol", all.x = TRUE)
+    
+    ## Groupings
+    df <- df %>%
+      dplyr::mutate(
+        group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)") ~ "01 BRAF sig",
+          stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|PIK3CA|ERBB2)$")     ~ "02 EGFR sig",
+          stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$") ~ "03 ferropt",
+          stringr::str_detect(Loading, "^MDM[24]$")                                  ~ "04 MDM2.MDM4",
+          stringr::str_detect(Loading, "^ATP5")                                      ~ "05 ATP5",
+          stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                         ~ "06 dasa targets",
+          stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                ~ "07 BCL2+",
+          stringr::str_detect(Loading, "^MYC(|N|L)")                                 ~ "08 MYC.",
+          stringr::str_detect(Loading, "^(GRB2|CRKL)$")                              ~ "09 SRC-related",
+          stringr::str_detect(Loading, "^TP53$")                                     ~ "10 TP53",
+          stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
+          TRUE ~ NA_character_
+        )
+      )
+    
+    df
+  }
+  
+  ## Re-use your existing annotation helpers to bring in group info
+  loadings_annot <- if (source_type == "CTRP") {
+    annotate_ctrp(loadings_raw, side_to_use)
+  } else {
+    annotate_crispr(loadings_raw, side_to_use)
+  }
+  
+  ## Keep only rows with a defined group (for distance summaries)
+  df_use <- loadings_annot %>%
+    dplyr::filter(!is.na(.data[[color_col]]))
+  
+  ## 1D group distance metrics along each component separately
+  compute_group_distances <- function(df, color_col) {
+    
+    ## Find component columns (comp1, comp2, ...)
+    comp_cols <- grep("comp", names(df), value = TRUE)
+
+    results <- list()
+    
+    for (comp in comp_cols) {
+      
+      tmp <- df %>%
+        dplyr::filter(!is.na(.data[[color_col]])) %>%
+        dplyr::mutate(val = .data[[comp]]) %>%  # 1D values on this component
+        dplyr::group_by(.data[[color_col]]) %>%
+        dplyr::summarise(
+          center          = mean(val, na.rm = TRUE),
+          dist_origin     = abs(center),
+          mean_dist_center = mean(abs(val - mean(val, na.rm = TRUE)), na.rm = TRUE),
+          n               = dplyr::n(),
+          .groups         = "drop"
+        ) %>%
+        dplyr::mutate(component = comp)
+      
+      ## Standardize group column name
+      names(tmp)[names(tmp) == color_col] <- "group_var"
+      results[[length(results) + 1]] <- tmp
+    }
+    
+    dplyr::bind_rows(results)
+  }
+  
+  ## Compute distances
+  group_distances <- compute_group_distances(df_use, color_col)
+  
+  ## Ensure component facets appear in numeric order (comp1, comp2, comp3, ...)
+  group_distances$component <- factor(
+    group_distances$component,
+    levels = paste0("comp", sort(unique(as.numeric(gsub("comp", "", group_distances$component)))))
+  )
+  
+  ## save
+  readr::write_tsv(
+    x = group_distances,
+    file = paste0(
+      path.pls,
+      file_tag, "_", side_to_use, ".GroupDistanceMetrics.txt"
+    )
+  )
+  
+  ## Plot: distance from origin vs cluster tightness
+  my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
+                 "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
+  
+  ## Scatter: distance from origin vs 1D cluster size, per component
+  p_dist <- ggplot2::ggplot(
+    group_distances,
+    ggplot2::aes(
+      x     = dist_origin,
+      y     = mean_dist_center,
+      color = group_var,
+      label = group_var,
+      size  = n
+    )
+  ) +
+    ggplot2::geom_point(alpha = 0.8) +
+    ggrepel::geom_text_repel(size = 2, show.legend = FALSE) +
+    ggplot2::facet_wrap(~ component) +
+    ggplot2::labs(
+      x     = "Distance from origin",
+      y     = "Mean Cluster Spread",
+      color = "Group",
+      size  = "n per group",
+      title = basename(loadings_path)
+    ) +
+    ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
+    ggplot2::theme_bw(base_size = 10)
+  
+  ggplot2::ggsave(
+    filename = paste0(
+      path.plots,
+      "Plot_", file_tag, "_", side_to_use, ".GroupDistance1D_vs_Tightness.pdf"
+    ),
+    plot   = p_dist,
+    width  = 7,
+    height = 4.5,
+    units  = "in",
+    device = cairo_pdf
+  )
+  
+}
