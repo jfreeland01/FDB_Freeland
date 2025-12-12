@@ -5,3 +5,16 @@ To-do list
 	- one dimensionsal might also be worth to then measure the distance from the origin/center
 
 - do something similar / do a box plot for the samples of the scores/variates of the samples on each components to try and explain what is going on (bar plots, sup figure 6b)
+
+
+Push analyses to the drug desert/forest section
+		-One of the strongest parts of the paper
+		- Check for positive controls
+		- Try with PLS-C, rCCA, any other method that performs
+	-With which ever analysis/analyses work, check if ferroptosis can be seen on any components and repeat that analyses
+	-Investigate leukemia
+	-Look to see if removing blood cancers or any others could rescue the “aesthetics” of the original plots
+
+- Improve the GSEA/pathway analyses
+- Improve metric/presentation of how well functionally similar genes/drugs are clustering
+- Investigate how other drug data sets could help us (PRISM, GDSC)

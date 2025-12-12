@@ -311,7 +311,7 @@ X_source <- "CRISPR" # CRISPR or CTRP
 Y_source <- "CTRP"   # CRISPR or CTRP
 
 ncomp <- 15
-mode  <- "regression" # default = regression, symmetric = canonical
+mode  <- "canonical" # default = regression, symmetric = canonical
 
 #### 1. Execute to prep for PLS
 if(1) {
@@ -557,10 +557,10 @@ if(1) {
           stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
           TRUE ~ NA_character_
         ),
-        group.atp5     = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
-        group.na       = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na  = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na   = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        group.atp5        = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
+        group.na          = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5.na     = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na      = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_)
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
@@ -574,6 +574,7 @@ if(1) {
     df
   }
   
+  
   ## annotate X- and Y- loadings based on actual sources
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_crispr(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_crispr(Y_loadings, "Y")
@@ -583,27 +584,45 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("comp", names(df), value = TRUE)
+    
+    # Create alpha flag based on the same thing you use for labeling
+    df <- df %>%
+      dplyr::mutate(
+        label_flag = dplyr::if_else(
+          is.na(.data[[color_col]]),
+          "Unlabeled", 
+          "Labeled"
+        )
+      )
+    
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
-      
       comp1 <- "comp1"
       comp2 <- paste0("comp", i)
-
+      
       p <- ggplot(
         df,
-        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
+        aes_string(
+          x = comp1,
+          y = comp2,
+          color = color_col,
+          alpha = "label_flag"
+        )
       ) +
         geom_point(size = 2.5) +
         
-        # Only label rows where color_col is NOT NA
         geom_text_repel(
-          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
-          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          data = df %>% dplyr::filter(label_flag == "Labeled"),
+          aes_string(label = label_col),
           size = 2
         ) +
         
+        scale_alpha_manual(
+          values = c(Labeled = 1, Unlabeled = 0.2),
+          guide  = "none"
+        ) +
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         scale_color_manual(values = my_colors, na.value = "grey80") +
@@ -618,17 +637,18 @@ if(1) {
     }
   }
   
+  
   ## If side is CTRP: color by target.category, label by Loading
   ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   } else {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
@@ -925,7 +945,7 @@ if(1) {
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
-    ## %NA per compound using non-imputed CTRP matrix
+    ## %NA per compound using non-imputed RNAi matrix
     percent.nas <- as.data.frame(colMeans(is.na(RNAi_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -982,13 +1002,13 @@ if(1) {
   ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   } else {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
@@ -1020,6 +1040,8 @@ Y_source <- "CRISPR"  # "CRISPR" or "CTRP"
 ncomp <- 15
 
 ## Regularization controls
+mode_rcca      <- "shrinkage" # ridge (default) requires parameters or tuning, shrinkage
+
 tune_lambda    <- FALSE   # set TRUE to run automatic tuning
 lambda1_manual <- 0.20    # default penalty on X (CRISPR side if X_source == "CRISPR")
 lambda2_manual <- 0.10    # default penalty on Y
@@ -1058,56 +1080,93 @@ if (1) {
   Y <- as.matrix(Y)
   
   ## Choose lambdas: either tuned or manual
-  if (tune_lambda) {
+  if (mode_rcca == "ridge") {
     
-    grid1 <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
-    grid2 <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
-    ncomp_tune <- min(5L, ncomp)  # tune only first few components
+    if (tune_lambda) {
+      
+      grid1      <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
+      grid2      <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
+      ncomp_tune <- min(5L, ncomp)       # tune only first few components
+      
+      set.seed(1L)
+      tune_time <- system.time({
+        tune.out <- mixOmics::tune.rcc(
+          X          = X,
+          Y          = Y,
+          grid1      = grid1,
+          grid2      = grid2,
+          ncomp      = ncomp_tune,
+          validation = "loo"
+        )
+      })
+      
+      print(tune_time)
+      print(tune.out$opt.lambda1)
+      print(tune.out$opt.lambda2)
+      
+      lambda1 <- tune.out$opt.lambda1
+      lambda2 <- tune.out$opt.lambda2
+      
+    } else {
+      
+      ## Use predefined defaults
+      lambda1 <- lambda1_manual
+      lambda2 <- lambda2_manual
+    }
     
-    set.seed(1L)
-    tune_time <- system.time({
-      tune.out <- mixOmics::tune.rcc(
-        X          = X,
-        Y          = Y,
-        grid1      = grid1,
-        grid2      = grid2,
-        ncomp      = ncomp_tune,
-        validation = "loo"
-      )
-    })
+    ## Common file tag for ridge mode
+    file_tag <- paste0(
+      "RCCA_ridge",
+      "_lambda1.", format(lambda1, digits = 3),
+      "_lambda2.", format(lambda2, digits = 3),
+      "_X.", X_source, "_Y.", Y_source
+    )
     
-    print(tune_time)                # show how long tuning took
-    print(tune.out$opt.lambda1)     # chosen lambda1
-    print(tune.out$opt.lambda2)     # chosen lambda2
+  } else if (mode_rcca == "shrinkage") {
     
-    lambda1 <- tune.out$opt.lambda1
-    lambda2 <- tune.out$opt.lambda2
+    ## Shrinkage mode: no lambda parameters
+    file_tag <- paste0(
+      "RCCA_shrinkage",
+      "_X.", X_source, "_Y.", Y_source
+    )
     
-  } else {
-    ## Use manual defaults
-    lambda1 <- lambda1_manual
-    lambda2 <- lambda2_manual
   }
   
-  ## For saving files
-  file_tag <- paste0(
-    "RCCA_lambda1.", format(lambda1, digits = 3),
-    "_lambda2.", format(lambda2, digits = 3),
-    "_X.", X_source, "_Y.", Y_source
-  )
 }
 
 #### 2. Execute to run RCCA and save output files (requires Step 1)
 if (1) {
 
-  ## Run RCCA
-  rcca_fit <- mixOmics::rcc(
-    X       = X,
-    Y       = Y,
-    ncomp   = ncomp,
-    lambda1 = lambda1,
-    lambda2 = lambda2
-  )
+  ## Run RCCA with mode-specific call
+  if (mode_rcca == "ridge") {
+    
+    message("Running rCCA in ridge mode with lambda1 = ", lambda1,
+            ", lambda2 = ", lambda2)
+    
+    rcca_fit <- mixOmics::rcc(
+      X       = X,
+      Y       = Y,
+      ncomp   = ncomp,
+      lambda1 = lambda1,
+      lambda2 = lambda2,
+      method  = "ridge"
+    )
+    
+  } else if (mode_rcca == "shrinkage") {
+    
+    message("Running rCCA in shrinkage mode (automatic lambda estimation).")
+    
+    rcca_fit <- mixOmics::rcc(
+      X      = X,
+      Y      = Y,
+      ncomp  = ncomp,
+      method = "shrinkage"
+    )
+    
+  } else {
+    
+    stop("mode_rcca must be 'ridge' or 'shrinkage', not: ", mode_rcca)
+  }
   
   ## Canonical correlations per component
   print(rcca_fit$cor)
@@ -1137,6 +1196,8 @@ if (1) {
   )
   
   ## Save files
+  if (!dir.exists(path.rcca)) dir.create(path.rcca, recursive = TRUE)
+  
   write.table(
     x = x.variates,
     file = paste0(path.rcca, file_tag, "_X.variates.txt"),
@@ -1359,17 +1420,15 @@ if(1) {
     }
   }
   
-  ## If side is CTRP: color by target.category, label by Loading
-  ## If side is CRISPR: color by group, label by Loading
-  
+  ## Color by group, label by Loading
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   } else {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
@@ -1401,6 +1460,8 @@ Y_source <- "CTRP"   # "RNAi" or "CTRP"
 ncomp <- 15
 
 ## Regularization controls
+mode_rcca      <- "ridge" # ridge (default) requires parameters or tuning, shrinkage
+
 tune_lambda    <- FALSE   # set TRUE to run automatic tuning
 lambda1_manual <- 0.20    # penalty on X (RNAi side if X_source == "RNAi")
 lambda2_manual <- 0.10    # penalty on Y
@@ -1453,60 +1514,91 @@ if (1) {
   X <- as.matrix(X)
   Y <- as.matrix(Y)
   
-  ## Enforce reasonable number of canonical components
-  ncomp <- 15
-  
-  ## Choose lambdas: either tuned or manual
-  if (tune_lambda) {
+  if (mode_rcca == "ridge") {
     
-    grid1 <- c(0.10, 0.20, 0.30)  # candidate lambdas for X (RNAi)
-    grid2 <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y (CTRP)
-    ncomp_tune <- min(5L, ncomp)  # tune only first few components
+    if (tune_lambda) {
+      
+      grid1      <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
+      grid2      <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
+      ncomp_tune <- min(5L, ncomp)       # tune only first few components
+      
+      set.seed(1L)
+      tune_time <- system.time({
+        tune.out <- mixOmics::tune.rcc(
+          X          = X,
+          Y          = Y,
+          grid1      = grid1,
+          grid2      = grid2,
+          ncomp      = ncomp_tune,
+          validation = "loo"
+        )
+      })
+      
+      print(tune_time)
+      print(tune.out$opt.lambda1)
+      print(tune.out$opt.lambda2)
+      
+      lambda1 <- tune.out$opt.lambda1
+      lambda2 <- tune.out$opt.lambda2
+      
+    } else {
+      
+      ## Use predefined defaults
+      lambda1 <- lambda1_manual
+      lambda2 <- lambda2_manual
+    }
     
-    set.seed(1L)
-    tune_time <- system.time({
-      tune.out <- mixOmics::tune.rcc(
-        X          = X,
-        Y          = Y,
-        grid1      = grid1,
-        grid2      = grid2,
-        ncomp      = ncomp_tune,
-        validation = "loo"
-      )
-    })
+    ## Common file tag for ridge mode
+    file_tag <- paste0(
+      "RCCA_ridge",
+      "_lambda1.", format(lambda1, digits = 3),
+      "_lambda2.", format(lambda2, digits = 3),
+      "_X.", X_source, "_Y.", Y_source
+    )
     
-    print(tune_time)                # show how long tuning took
-    print(tune.out$opt.lambda1)     # chosen lambda1
-    print(tune.out$opt.lambda2)     # chosen lambda2
+  } else if (mode_rcca == "shrinkage") {
     
-    lambda1 <- tune.out$opt.lambda1
-    lambda2 <- tune.out$opt.lambda2
+    ## Shrinkage mode: no lambda parameters
+    file_tag <- paste0(
+      "RCCA_shrinkage",
+      "_X.", X_source, "_Y.", Y_source
+    )
     
-  } else {
-    ## Use manual defaults
-    lambda1 <- lambda1_manual
-    lambda2 <- lambda2_manual
   }
-  
-  ## For saving files
-  file_tag <- paste0(
-    "RCCA_lambda1.", format(lambda1, digits = 3),
-    "_lambda2.", format(lambda2, digits = 3),
-    "_X.", X_source, "_Y.", Y_source
-  )
 }
 
 #### 2. Execute to run RCCA and save output files (requires Step 1)
 if (1) {
   
-  ## Run RCCA
-  rcca_fit <- mixOmics::rcc(
-    X       = X,
-    Y       = Y,
-    ncomp   = ncomp,
-    lambda1 = lambda1,
-    lambda2 = lambda2
-  )
+  if (mode_rcca == "ridge") {
+    
+    message("Running rCCA in ridge mode with lambda1 = ", lambda1,
+            ", lambda2 = ", lambda2)
+    
+    rcca_fit <- mixOmics::rcc(
+      X       = X,
+      Y       = Y,
+      ncomp   = ncomp,
+      lambda1 = lambda1,
+      lambda2 = lambda2,
+      method  = "ridge"
+    )
+    
+  } else if (mode_rcca == "shrinkage") {
+    
+    message("Running rCCA in shrinkage mode (automatic lambda estimation).")
+    
+    rcca_fit <- mixOmics::rcc(
+      X      = X,
+      Y      = Y,
+      ncomp  = ncomp,
+      method = "shrinkage"
+    )
+    
+  } else {
+    
+    stop("mode_rcca must be 'ridge' or 'shrinkage', not: ", mode_rcca)
+  }
   
   ## Canonical correlations per component (full spectrum; first ncomp used)
   print(rcca_fit$cor[1:ncomp])
@@ -1759,26 +1851,25 @@ if (1) {
     }
   }
   
-  ## If side is CTRP: color by target.category, label by Loading
-  ## If side is CRISPR: color by group, label by Loading
+  ## Color by group, label by Loading
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "target.category", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   } else {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "target.category", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
 }
 
-##### Max loading scatter plot #####
+##### Max loading: Scatter & GSEA #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -1787,16 +1878,19 @@ if (OS == "Mac") {
 }
 
 ## Set paths
-path.wd     <- paste0(path.OS, "WD_FDB_Freeland/")
-path.pls    <- paste0(path.wd, "DataSets/PLS/")
-path.rcca   <- paste0(path.wd, "DataSets/rCCA/")
-path.plots  <- paste0(path.wd, "Plots/")
-path.max    <- paste0(path.wd, "DataSets/MaxLoading/")
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.max     <- paste0(path.wd, "DataSets/MaxLoading/")
+path.scripts <- paste0(path.OS, "FDB_Freeland/Scripts/")
 
-## set dim red technique. PLS, rCCA
+source("/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/FGSEA_functions.R")
+
+## Set dim red technique. PLS, rCCA
 DimRedTec <- "PLS"
 
-## set parameters. CRISPR, RNAi, CTRP
+## Set parameters. CRISPR, RNAi, CTRP
 X1_source <- "CRISPR"
 Y1_source <- "CTRP"
 
@@ -1805,6 +1899,7 @@ Y2_source <- "CTRP"
 
 mode  <- "canonical" # default = regression, symmetric = canonical
 
+### Create scatter plot and generate table of distances and theta
 if(1){
   
   if(DimRedTec == "PLS"){
@@ -1870,8 +1965,8 @@ if(1){
   ## merge
   Max <- merge(X1_loadings_max, X2_loadings_max, by = "Loading")
   
-  xcol <- names(Max)[4]   # 4th column name
-  ycol <- names(Max)[7]   # 7th column name
+  xcol <- names(Max)[7]   # 4th column name
+  ycol <- names(Max)[4]   # 7th column name
   
   Max <- Max %>%
     dplyr::mutate(
@@ -1887,8 +1982,8 @@ if(1){
   
   ## plot 
   plot_df <- data.frame(
-    x      = Max[[4]],   # 4th column = abs_loading_CRISPR
-    y      = Max[[7]],   # 7th column = abs_loading_RNAi
+    x      = Max[[7]],   # 4th column = abs_loading_CRISPR
+    y      = Max[[4]],   # 7th column = abs_loading_RNAi
     gene   = Max$Loading
   )
   
@@ -1902,21 +1997,192 @@ if(1){
       slope = tan(pi/3), intercept = 0,
       linetype = "dotted", linewidth = 0.4, color = "grey40"
     ) +
-    theme_bw(base_size = 14) +
+    # theme_bw(base_size = 10) +
     labs(
-      x = names(Max)[4],
-      y = names(Max)[7],
+      x = names(Max)[7],
+      y = names(Max)[4],
       title = "Max Absolute Loadings per Gene comp 1-10"
     ) +
     scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
-    scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA))
+    scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
+    theme_classic(base_size = 10)
   
-  ggplot2::ggsave(
-    filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".pdf"),
-    plot = p, width = 6, height = 4, units = "in", device = cairo_pdf
+  ggsave(
+    filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, "_Scatter.pdf"),
+    plot = p, width = 5, height = 4, units = "in", device = cairo_pdf
   )
   
 }
+
+#### Create GSEA Plot
+
+## Load msigdb pathways
+msig_df <- load.MSigDB(species = 'Homo sapiens')
+
+gsea_list <- get.MSigDB.genesets(
+  msig_df = rbind(
+    msigdbr::msigdbr(species = "Homo sapiens", collection = "C5")
+  ),
+  genesets = c("BP")
+)
+
+keyword_groups <- list(
+  # OX =
+  #   c("OXIDATIVE_PHOSPHORYLATION", "ELECTRON_TRANSPORT_CHAIN", "MITOCHONDRIAL_COMPLEX",
+  #     "NADH_DEHYDROGENASE", "MITOCHONDRIAL_LARGE_RIBOSOMAL"),
+  # DNA =
+  #   c("DNA_REPAIR", "DNA_DAMAGE_STIMULUS", "FANCONI", "END_JOINING"),
+  # NEURO = 
+  #   c("NEURO", "NEUROTRANSMITTER", "SYNAPTIC", "VOLTAGE", "AXON",
+  #     "CEREBRAL", "CORTEX", "DENDRITE", "GLUTAMATE"),
+  IMMUNE =
+    c("INFLAME", "IMMUNE", "INTERLEUKIN", "LEUKOCYTE", "CD4",
+      "MACROPHAGE", "NEUTROPHILE"),
+  # TISSUE_DEVELOPMENT =
+  #   c("MORPHOGENESIS", "VESSEL", "TISSUE_DEVELOPMENT", "TISSUE"),
+  # SENSORY_PERCEPTION =
+  #   c("SENSORY", "AUDITORY", "SMELL"),
+  # KINASE_ACTIVITY =
+  #   c("MAPK", "KINASE", "GTP", "TYROSINE"),
+  # CELL_DIFFERENTIATION =
+  #   c("KERATINOCYTE", "DIFFERENTIATION"),
+  # CELL_CELL_INTERACTION =
+  #   c("ADHESION", "ADHERENS", "CELL-CELL", "COMMUNICATION"),
+  # PEROXISOME =
+  #   c("PEROXIDE", "PEROXISOME"),
+  # CELL_PROLIFERATION =
+  #   c("PROLIFERATION"),
+  PROTEIN_PROCESSING =
+    c("PEPTIDE", "AMINO_ACID", "UBIQUITIN", "UBIQUITINATION"),
+  VIRAL_PROCESSES =
+    c("VIRAL", "SYMBIOTIC", "DSRNA"),
+  # MICRO_RNA =
+  #   c("MIRNA"),
+  STRESS_RESPONSE =
+    c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
+  METABOLIC_PATHWAY =
+    c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
+      "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
+  MITOCHONDRIA =
+    c("MITOCHONDRIAL", "MITOCHONDRION"),
+  # ORGANELLE_TRANSPORT =
+  #   c("ENDOPLASMIC_RETICULUM", "GOLGI", "VACUOLE"),
+  # ORGANELLE_ORGANIZATION =
+  #   c("ORGANELLE"),
+  # EPIGENETIC =
+  #   c("HISTONE", "NUCLEOSIDE", "DEMETHYLATION", "METHYLATION", "EPIGENETIC"),
+  # SPLICEOSOME =
+  #   c("SNRNA", "SPLICING", "SPLICEOSOME"),
+  TRANSLATION =
+    c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
+  DNA_TRANSCRIPTION =
+    c("MRNA", "TRANSCRIPTION", "POLYMERASE", "TRANSCRIBED", "GENE_EXPRESSION"),
+  CELL_CYCLE =
+    c("CELL_CYCLE", "MITOTIC", "DNA_REPLICATION", "CHROMOSOME_SEGREGATION",
+      "CHROMATID_SEGREGATION", "SPINDLE", "CELL_DIVISION",
+      "KINETOCHORE", "CENTRIOLE", "ANAPHASE")
+)
+
+pathway_names <- names(gsea_list)
+
+## For each keyword group, find all pathways whose name contains ANY of the strings
+keyword_to_genes <- purrr::imap(
+  keyword_groups,
+  function(pattern_vec, kw_name) {
+    
+    # single regex that ORs all patterns in the keyword group
+    pattern_regex <- paste(pattern_vec, collapse = "|")
+    
+    # which pathways match any of these patterns (case-insensitive)
+    hit_idx <- grepl(pattern_regex, pathway_names, ignore.case = TRUE)
+    
+    # union of all genes in those matched pathways
+    genes <- unique(unlist(gsea_list[hit_idx], use.names = FALSE))
+    
+    genes
+  }
+)
+
+sapply(keyword_to_genes, length)
+
+## Long data frame: one row per (gene, keyword_group)
+keyword_gene_df <- purrr::imap_dfr(
+  keyword_to_genes,
+  ~ dplyr::tibble(
+    Loading       = .x,   # gene symbol
+    keyword_group = .y    # name of the list element (e.g. "OX", "DNA", ...)
+  )
+)
+
+## Make sure groups have a fixed order
+keyword_gene_df$keyword_group <- factor(
+  keyword_gene_df$keyword_group,
+  levels = names(keyword_groups)
+)
+
+## Join to Max on the gene column "Loading"
+Max_kw <- Max %>%
+  dplyr::inner_join(keyword_gene_df, by = "Loading") %>%
+  dplyr::mutate(
+    keyword_group = factor(keyword_group, levels = names(keyword_groups))
+  )
+
+group_order <- Max_kw %>%
+  dplyr::group_by(keyword_group) %>%
+  dplyr::summarise(mean_theta = mean(theta_deg, na.rm = TRUE)) %>%
+  dplyr::arrange(dplyr::desc(mean_theta)) %>%
+  dplyr::pull(keyword_group)
+
+Max_kw$keyword_group <- factor(Max_kw$keyword_group, levels = group_order)
+
+## Set custom colors
+my_group_colors <- c(
+  IMMUNE              = "#fea605",
+  PROTEIN_PROCESSING  = "#0f34fe",
+  VIRAL_PROCESSES     = "#fefb39",
+  METABOLIC_PATHWAY   = "#006500",
+  MITOCHONDRIA        = "#5fe2d1",
+  TRANSLATION         = "#aa3337",
+  DNA_TRANSCRIPTION   = "#fd2600",
+  CELL_CYCLE          = "#fec0cc"
+)
+
+## Plot and save
+p <- ggplot2::ggplot(
+  Max_kw,
+  aes(x = r, y = theta_deg, color = keyword_group)
+) +
+  ## density wave contours — colored per group
+  geom_density_2d(
+    aes(group = keyword_group),   # ensures independent estimation per facet
+    linewidth = 0.5,
+    alpha = 0.8
+  ) +
+  geom_point(size = 0.8, alpha = 0.6) +
+  ## reference lines
+  geom_hline(
+    yintercept = c(30, 60),
+    linetype   = "dotted",
+    color      = "grey40",
+    linewidth  = 0.4
+  ) +
+  ## facets
+  facet_grid(
+    . ~ keyword_group,
+    scales = "free_x",
+    space  = "free_x"
+  ) +
+  ## apply your palette
+  scale_color_manual(values = my_group_colors, guide = "none") +
+  theme_classic() +
+  scale_x_continuous(limits = c(0, 0.07))
+
+print(p)
+
+ggsave(
+  filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, "_GSEA.pdf"),
+  plot = p, width = 13, height = 9, units = "in", device = cairo_pdf
+)
 
 ##### GSEA #####
 
@@ -2247,7 +2513,7 @@ ggsave(
 ##### Investigating drug data for better classification #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -2394,10 +2660,10 @@ if (1) {
   
   ## Keep only rows with a defined group (for distance summaries)
   df_use <- loadings_annot %>%
-    dplyr::filter(!is.na(.data[[color_col]]))
+    dplyr::filter(!is.na(.data[["group"]]))
   
   ## 1D group distance metrics along each component separately
-  compute_group_distances <- function(df, color_col) {
+  compute_group_distances <- function(df, group) {
     
     ## Find component columns (comp1, comp2, ...)
     comp_cols <- grep("comp", names(df), value = TRUE)
@@ -2407,9 +2673,9 @@ if (1) {
     for (comp in comp_cols) {
       
       tmp <- df %>%
-        dplyr::filter(!is.na(.data[[color_col]])) %>%
+        dplyr::filter(!is.na(.data[[group]])) %>%
         dplyr::mutate(val = .data[[comp]]) %>%  # 1D values on this component
-        dplyr::group_by(.data[[color_col]]) %>%
+        dplyr::group_by(.data[[group]]) %>%
         dplyr::summarise(
           center          = mean(val, na.rm = TRUE),
           dist_origin     = abs(center),
@@ -2420,7 +2686,7 @@ if (1) {
         dplyr::mutate(component = comp)
       
       ## Standardize group column name
-      names(tmp)[names(tmp) == color_col] <- "group_var"
+      names(tmp)[names(tmp) == group] <- "group_var"
       results[[length(results) + 1]] <- tmp
     }
     
@@ -2428,7 +2694,7 @@ if (1) {
   }
   
   ## Compute distances
-  group_distances <- compute_group_distances(df_use, color_col)
+  group_distances <- compute_group_distances(df_use, "group")
   
   ## Ensure component facets appear in numeric order (comp1, comp2, comp3, ...)
   group_distances$component <- factor(
@@ -2437,12 +2703,11 @@ if (1) {
   )
   
   ## save
-  readr::write_tsv(
-    x = group_distances,
-    file = paste0(
-      path.pls,
-      file_tag, "_", side_to_use, ".GroupDistanceMetrics.txt"
-    )
+  write.table(
+    x = group_distances, 
+    file = paste0(path.pls, file_tag, "_", side_to_use, ".GroupDistanceMetrics.txt"), 
+    quote = F, 
+    sep = "\t"
   )
   
   ## Plot: distance from origin vs cluster tightness
@@ -2450,9 +2715,9 @@ if (1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   ## Scatter: distance from origin vs 1D cluster size, per component
-  p_dist <- ggplot2::ggplot(
+  p_dist <- ggplot(
     group_distances,
-    ggplot2::aes(
+    aes(
       x     = dist_origin,
       y     = mean_dist_center,
       color = group_var,
@@ -2460,27 +2725,26 @@ if (1) {
       size  = n
     )
   ) +
-    ggplot2::geom_point(alpha = 0.8) +
-    ggrepel::geom_text_repel(size = 2, show.legend = FALSE) +
-    ggplot2::facet_wrap(~ component) +
-    ggplot2::labs(
+    geom_point(alpha = 0.8) +
+    geom_text_repel(size = 2, show.legend = FALSE) +
+    facet_wrap(~ component) +
+    labs(
       x     = "Distance from origin",
       y     = "Mean Cluster Spread",
       color = "Group",
       size  = "n per group",
       title = basename(loadings_path)
     ) +
-    ggplot2::scale_color_manual(values = my_colors, na.value = "grey80") +
-    ggplot2::theme_bw(base_size = 10)
+    scale_color_manual(values = my_colors, na.value = "grey80") +
+    theme_bw(base_size = 10)
   
-  ggplot2::ggsave(
-    filename = paste0(
-      path.plots,
-      "Plot_", file_tag, "_", side_to_use, ".GroupDistance1D_vs_Tightness.pdf"
-    ),
+  print(p_dist)
+  
+  ggsave(
+    filename = paste0(path.plots, "Plot_", gsub(".txt", "", basename(loadings_path)), "clustering.pdf"),
     plot   = p_dist,
-    width  = 7,
-    height = 4.5,
+    width  = 8,
+    height = 7,
     units  = "in",
     device = cairo_pdf
   )
