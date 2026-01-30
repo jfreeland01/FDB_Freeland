@@ -10,6 +10,14 @@ if(1) {
   library(ggrepel)
   library(purrr)
   library(tibble)
+  library(tidyr)
+  library(clusterProfiler)
+  library(org.Hs.eg.db)
+  library(pheatmap)
+  library(GO.db)
+  library(impute)
+  library(preprocessCore)
+  library(WGCNA)
 }
 
 #### Imputation: CRISPR (NA's in Data) ####
@@ -2466,35 +2474,35 @@ right_labels <- ks_results %>%
   tibble::deframe()
 
 # Plot (x = rank, y = category; labels on left and right)
-plt <- ggplot2::ggplot(data_df, ggplot2::aes(x = Value, y = Category)) +
-  ggplot2::geom_jitter(
+plt <- ggplot(data_df, ggplot2::aes(x = Value, y = Category)) +
+  geom_jitter(
     height = 0.2,
     width  = 0,
-    ggplot2::aes(color = Category),
+    aes(color = Category),
     size   = 1,
     shape  = 16
   ) +
-  ggplot2::scale_y_discrete(
+  scale_y_discrete(
     labels   = custom_labels,
-    sec.axis = ggplot2::dup_axis(
+    sec.axis = dup_axis(
       labels = right_labels[levels(data_df$Category)],
       name   = ""
     )
   ) +
-  ggplot2::scale_x_continuous(
+  scale_x_continuous(
     breaks = c(max_rank * 0.15, max_rank * 0.85),
     labels = c("Enriched in\nRNAi", "Enriched in\nCRISPR")
   ) +
-  ggplot2::labs(x = "Rank", y = "") +
-  ggplot2::theme_minimal() +
-  ggplot2::theme(
-    axis.text.y.left  = ggplot2::element_text(size = 7),
-    axis.text.y.right = ggplot2::element_text(size = 7, hjust = 0),
-    axis.text.x       = ggplot2::element_text(size = 7),
+  labs(x = "Rank", y = "") +
+  theme_minimal() +
+  theme(
+    axis.text.y.left  = element_text(size = 7),
+    axis.text.y.right = element_text(size = 7, hjust = 0),
+    axis.text.x       = element_text(size = 7),
     legend.position   = "none",
-    panel.border      = ggplot2::element_rect(color = "black", fill = NA, size = 0.5),
-    panel.grid.major.y = ggplot2::element_blank(),
-    panel.grid.minor  = ggplot2::element_blank()
+    panel.border      = element_rect(color = "black", fill = NA, size = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor  = element_blank()
   )
 
 ggsave(
@@ -2529,7 +2537,7 @@ path.general <- paste0(path.wd, "DataSets/General/")
 ctrp.inform  <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 
 View(table(ctrp.inform$target_or_activity_of_compound))
-##### TIDY UP: Group distance diagnostics from loadings #####
+##### Group distance diagnostics from loadings #####
 OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
@@ -2750,3 +2758,190 @@ if (1) {
   )
   
 }
+
+##### WGCNA #####
+
+## Set OS (for swapping between personal and workstation)
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.plots   <- paste0(path.wd, "Plots/")
+
+## Read in CRISPR data
+CRISPR <- read.delim(
+  file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"),
+  sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
+) %>%
+  dplyr::rename_with(~ sub("\\.\\..*", "", .))
+
+## Read in and format RNAi data
+RNAi <- read.delim(
+  file = paste0(path.dm, "D2_combined_gene_dep_scores_MFImputed.txt"),
+  sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
+)
+
+models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F) %>%
+  dplyr::select(ModelID, CCLEName)
+
+RNAi_t <- RNAi %>%
+  t() %>%
+  data.frame() %>%
+  tibble::rownames_to_column(var = "CCLEName") %>%
+  dplyr::rename_with(~ sub("\\.\\..*", "", .))
+
+RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
+  dplyr::select(-CCLEName) %>%
+  tibble::column_to_rownames(var = "ModelID")
+
+## Filter data frames
+common_genes    <- intersect(colnames(CRISPR), colnames(RNAi_t_ModelID))
+common_cells    <- intersect(rownames(CRISPR), rownames(RNAi_t_ModelID))
+
+CRISPR_common   <- CRISPR[common_cells, common_genes, drop = FALSE]
+RNAi_common     <- RNAi_t_ModelID[common_cells, common_genes, drop = FALSE]
+
+CRISPR_common[] <- lapply(CRISPR_common, as.numeric)
+RNAi_common[]   <- lapply(RNAi_common, as.numeric)
+
+CRISPR_common   <- as.data.frame(CRISPR_common)
+RNAi_common     <- as.data.frame(RNAi_common)
+
+## WGCNA parameters (tune as needed)
+soft_power    <- 6L
+min_module_sz <- 5L
+
+## Allow multi-threading for WGCNA
+WGCNA::enableWGCNAThreads()
+
+## Run single-block WGCNA on CRISPR dependencies
+net_CRISPR <- WGCNA::blockwiseModules(
+  CRISPR_common,
+  power              = soft_power,
+  minModuleSize      = min_module_sz,
+  networkType        = "signed",
+  TOMType            = "signed",
+  reassignThreshold  = 0,
+  mergeCutHeight     = 0.25,
+  numericLabels      = FALSE,
+  pamRespectsDendro  = TRUE,
+  verbose            = 3
+)
+
+## Extract module colors and gene tree
+moduleColors_CRISPR <- net_CRISPR$colors           # color per gene
+table(moduleColors_CRISPR)
+
+geneTree_CRISPR     <- net_CRISPR$dendrograms[[1]] # clustering tree
+
+## Gene order from the dendrogram
+gene_order   <- geneTree_CRISPR$order
+genes_ordered <- colnames(CRISPR_common)[gene_order]
+
+## Reorder colors to that order
+moduleColors_CRISPR_ordered <- moduleColors_CRISPR[match(genes_ordered, colnames(CRISPR_common))]
+
+## Reorder matrices for CRISPR and RNAi
+datExpr_CRISPR_ord <- CRISPR_common[, genes_ordered, drop = FALSE]
+datExpr_RNAi_ord   <- RNAi_common[,   genes_ordered, drop = FALSE]
+
+## Compute gene–gene correlations
+cor_CRISPR <- stats::cor(datExpr_CRISPR_ord, use = "pairwise.complete.obs")
+cor_RNAi   <- stats::cor(datExpr_RNAi_ord,   use = "pairwise.complete.obs")
+
+## Annotation with module colors
+annot_row <- data.frame(Module = moduleColors_CRISPR_ordered)
+rownames(annot_row) <- genes_ordered
+
+## Total Heatmaps (too big, not informative)
+p_crispr <- pheatmap::pheatmap(
+  cor_CRISPR,
+  cluster_rows   = FALSE,
+  cluster_cols   = FALSE,
+  show_rownames  = FALSE,
+  show_colnames  = FALSE,
+  annotation_row = annot_row,
+  annotation_col = annot_row,
+  main           = "CRISPR gene–gene correlation (WGCNA order)"
+)
+
+p_rnai <- pheatmap::pheatmap(
+  cor_RNAi,
+  cluster_rows   = FALSE,
+  cluster_cols   = FALSE,
+  show_rownames  = FALSE,
+  show_colnames  = FALSE,
+  annotation_row = annot_row,
+  annotation_col = annot_row,
+  main           = "RNAi gene–gene correlation (CRISPR WGCNA order)"
+)
+
+ggsave(
+  filename = paste0(path.plots, "CRISPR_WGCNA_heatmap.png"),
+  plot     = p_crispr,
+  width    = 8,
+  height   = 8,
+  dpi      = 150
+)
+
+ggsave(
+  filename = paste0(path.plots, "RNAi_WGCA.pdf"),
+  plot   = p_rnai,
+  width  = 6,
+  height = 4,
+  units  = "in",
+  device = cairo_pdf
+)
+
+## Make sub heatplots
+
+# Count module sizes
+module_sizes <- sort(table(moduleColors_CRISPR), decreasing = TRUE)
+
+# Remove grey (unassigned)
+module_sizes <- module_sizes[names(module_sizes) != "grey"]
+
+# Choose the top 5 largest modules
+top5_modules <- names(module_sizes)[1:5]
+top5_modules
+
+for (mod in top5_modules) {
+  
+  message("Plotting module: ", mod)
+  
+  # Get gene list for this module
+  genes_mod <- names(moduleColors_CRISPR)[moduleColors_CRISPR == mod]
+  
+  # Subset correlation matrix to this module
+  cor_mod <- cor(CRISPR_common[, genes_mod], use = "pairwise.complete.obs")
+  
+  # Plot heatmap
+  p <- pheatmap::pheatmap(
+    cor_mod,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_rownames = FALSE,
+    show_colnames = FALSE,
+    main = paste0("Module: ", mod, "  (n=", length(genes_mod), ")")
+  )
+  
+  # Save a PNG instead of PDF (PDF too large)
+  ggsave(
+    filename = paste0(path.plots, "WGCNA_Module_", mod, ".png"),
+    plot     = p,
+    width    = 6,
+    height   = 6,
+    dpi      = 150
+  )
+}
+
+
+
+
