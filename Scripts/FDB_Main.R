@@ -2783,11 +2783,11 @@ path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.plots   <- paste0(path.wd, "Plots/")
 
 ## WGCNA parameters (tune as needed)
-soft_power    <- 8L
+soft_power    <- 6L
 min_module_sz <- 5L
 
 #### Prep for WGCNA by creating shared RNAi and CRISPR files
-if (0) {
+if (1) {
   
   ## Read in CRISPR data
   CRISPR <- read.delim(
@@ -2831,7 +2831,7 @@ if (0) {
 }
 
 #### Run WGCNA (1) or Read in WGCNA object (0)
-if (0) {
+if (1) {
   
   ## Allow multi-threading for WGCNA
   WGCNA::enableWGCNAThreads()
@@ -2864,7 +2864,7 @@ if (0) {
 }
 
 #### Perform correlation on all non grey modules and prep for plot
-if (0) {
+if (1) {
   
   ## Extract module colors and gene tree
   moduleColors_CRISPR <- net_CRISPR$colors
@@ -2904,7 +2904,7 @@ if (0) {
 }
 
 #### Plot 
-if (0) {
+if (1) {
   
   p_crispr <- ComplexHeatmap::Heatmap(
     cor_CRISPR_ord,
@@ -2953,7 +2953,7 @@ if (0) {
 #### Repeat CRISPR plot but only on top # of modules
 top_k <- 5L # Number of clusters
 
-if (0) {
+if (1) {
 
   ## Filter for top # of modules
   mod_sizes <- sort(table(mod_ng), decreasing = TRUE)
@@ -2983,7 +2983,7 @@ if (0) {
 }
 
 #### Plot
-if (0) {
+if (1) {
   
   p_crispr_top <- ComplexHeatmap::Heatmap(
     cor_top_ord,
@@ -3026,7 +3026,7 @@ if (0) {
 }
 
 #### Look at all CRISPR modules now in RNAi
-if (0) {
+if (1) {
   ## Filter for all non grey modules
   RNAi_ng <- RNAi_common[, non_grey_genes, drop = FALSE]
   
@@ -3084,7 +3084,7 @@ if (0) {
 }
 
 #### Look at top CRISPR modules now in RNAi
-if (0) {
+if (1) {
   RNAi_top <- RNAi_common[, top_genes, drop = FALSE]
   
   cor_RNAi_top <- stats::cor(
@@ -3341,7 +3341,7 @@ if (1) {
 }
 
 #### Checking for conservation between CRISPR and RNAi
-if (0) {
+if (1) {
   
   moduleColors_CRISPR <- net_CRISPR$colors
   
@@ -3407,15 +3407,20 @@ if (0) {
 
 }
 
-#### Visualize preservation statistics (UNDER PROGRESS)
-if (0) {
+#### Visualize preservation statistics
+if (1) {
   
-  ## Prepare data for plotting
+  mp <- readRDS(file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", 
+                              soft_power, "_MinModuleSize_", min_module_sz, ".rds"))
+  
+  stats <- mp$preservation$Z$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  obsStats <- mp$preservation$observed$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  
   plotData <- data.frame(
-    module = rownames(modStats),
-    size = modStats$moduleSize,
-    Zsummary = modStats$Zsummary.pres,
-    medianRank = modStats$medianRank.pres
+    module     = rownames(stats),
+    size       = stats$moduleSize,
+    Zsummary   = stats$Zsummary.pres,
+    medianRank = obsStats$medianRank.pres
   )
   
   ## Remove gold and grey
@@ -3438,8 +3443,9 @@ if (0) {
     labs(
       x = "Module Size (number of genes)",
       y = "Preservation Z-summary",
-      title = "Module Preservation: CRISPR modules in RNAi data"
+      title = paste0("Module Preservation: CRISPR modules in RNAi data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
     ) +
+    
     annotate("text", x = max(plotData$size) * 0.7, y = 2, 
              label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
     annotate("text", x = max(plotData$size) * 0.7, y = 10, 
@@ -3447,37 +3453,31 @@ if (0) {
     theme_bw() +
     theme(legend.position = "none")
   
-  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "png"), p_preservation, width = 10, height = 8)
+  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_preservation, width = 8, height = 7)
   
   ## Plot 2: Median rank vs Zsummary
   p_rank <- ggplot(plotData, aes(x = medianRank, y = Zsummary, color = module, label = module)) +
     geom_point(size = 4) +
-    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +
-    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
+    geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
     scale_color_identity() +
     labs(
       x = "Median Rank",
       y = "Preservation Z-summary",
-      title = "Module Preservation: Median Rank vs Z-summary"
+      title = paste0("Module Preservation: CRISPR modules in RNAi data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
     ) +
+    annotate("text", x = max(plotData$size) * 0.2, y = 2, 
+             label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
+    annotate("text", x = max(plotData$size) * 0.2, y = 10, 
+             label = "Z = 10 (strong)", vjust = -0.5, color = "darkgreen") +
     theme_bw() +
     theme(legend.position = "none")
   
-  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "png"), p_rank, width = 10, height = 8)
-  
-  ## Summary table
-  preservation_summary <- plotData %>%
-    group_by(preservation) %>%
-    summarise(
-      n_modules = n(),
-      modules = paste(module, collapse = ", ")
-    )
-  
-  print(preservation_summary)
+  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_rank, width = 8, height = 7)
 
 }
 
-##### WGCNA: RNAi (needs to be updated to match CRISPR) #####
+##### WGCNA: RNAi #####
 
 ## Set OS (for swapping between personal and workstation)
 OS <- "Mac" # Linux or Mac
@@ -3494,7 +3494,7 @@ path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.plots   <- paste0(path.wd, "Plots/")
 
 ## WGCNA parameters (tune as needed)
-soft_power    <- 8L
+soft_power    <- 6L
 min_module_sz <- 5L
 
 #### Prep for WGCNA by creating shared RNAi and CRISPR files
@@ -3981,7 +3981,7 @@ if (1) {
 }
 
 #### Checking for conservation between RNAi and CRISPR
-if (0) {
+if (1) {
   
   moduleColors_RNAi <- net_RNAi$colors
   
@@ -4029,7 +4029,7 @@ if (0) {
   ref <- 1  # RNAi
   test <- 2 # CRISPR
   
-  stats <- mp$preservation$Z$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  stats <- mp$preservation$Z$ref.RNAi$inColumnsAlsoPresentIn.CRISPR
   
   ## Interpretation thresholds (Langfelder & Horvath)
   # Zsummary < 2: no preservation
@@ -4047,16 +4047,75 @@ if (0) {
   
 }
 
-
-
-
-
-
-
-
-
-
-
+#### Visualize preservation statistics
+if (1) {
+  
+  mp <- readRDS(file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_RNAi_in_CRISPR_SoftPower_", 
+                              soft_power, "_MinModuleSize_", min_module_sz, ".rds"))
+  
+  stats <- mp$preservation$Z$ref.RNAi$inColumnsAlsoPresentIn.CRISPR
+  obsStats <- mp$preservation$observed$ref.RNAi$inColumnsAlsoPresentIn.CRISPR
+  
+  plotData <- data.frame(
+    module     = rownames(stats),
+    size       = stats$moduleSize,
+    Zsummary   = stats$Zsummary.pres,
+    medianRank = obsStats$medianRank.pres
+  )
+  
+  ## Remove gold and grey
+  plotData <- plotData[!plotData$module %in% c("gold", "grey"), ]
+  
+  ## Add preservation category
+  plotData$preservation <- cut(
+    plotData$Zsummary,
+    breaks = c(-Inf, 2, 10, Inf),
+    labels = c("No preservation", "Weak-Moderate", "Strong preservation")
+  )
+  
+  ## Plot 1: Zsummary vs module size
+  p_preservation <- ggplot(plotData, aes(x = size, y = Zsummary, color = module, label = module)) +
+    geom_point(size = 4) +
+    geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +
+    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
+    scale_color_identity() +
+    labs(
+      x = "Module Size (number of genes)",
+      y = "Preservation Z-summary",
+      title = paste0("Module Preservation: RNAi modules in CRISPR data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
+    ) +
+    
+    annotate("text", x = max(plotData$size) * 0.7, y = 2, 
+             label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
+    annotate("text", x = max(plotData$size) * 0.7, y = 10, 
+             label = "Z = 10 (strong)", vjust = -0.5, color = "darkgreen") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_RNAi_in_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_preservation, width = 8, height = 7)
+  
+  ## Plot 2: Median rank vs Zsummary
+  p_rank <- ggplot(plotData, aes(x = medianRank, y = Zsummary, color = module, label = module)) +
+    geom_point(size = 4) +
+    geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
+    scale_color_identity() +
+    labs(
+      x = "Median Rank",
+      y = "Preservation Z-summary",
+      title = paste0("Module Preservation: RNAi modules in CRISPR data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
+    ) +
+    annotate("text", x = max(plotData$size) * 0.2, y = 2, 
+             label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
+    annotate("text", x = max(plotData$size) * 0.2, y = 10, 
+             label = "Z = 10 (strong)", vjust = -0.5, color = "darkgreen") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_RNAi_in_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_rank, width = 8, height = 7)
+  
+}
 
 ##### Gene-Only PCA + WGCNA Cluster Investigation #####
 
@@ -4076,6 +4135,10 @@ path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 path.pca     <- paste0(path.wd, "DataSets/PCA/")
 path.max     <- paste0(path.wd, "DataSets/MaxLoading/")
+
+## WGCNA Parameters
+soft_power    <- 10L
+min_module_sz <- 5L
 
 #### Run to created shared CRISPR/RNAi files & save (only needs to be ran once)
 if (1) {
@@ -4160,12 +4223,7 @@ if (1) {
   )
 }
 
-### Create scatter plot and generate table of distances and theta
-
-## WGCNA parameters for WGCNA object
-soft_power    <- 10L
-min_module_sz <- 5L
-
+### Generate table of distances and theta and create plots
 if (1) {
   
   ## Read in PCA loadings
@@ -4305,15 +4363,15 @@ if (1) {
     labs(
       x = "r (magnitude)",
       y = "θ (degrees)",
-      title = "Max PCA Loadings: CRISPR WGCNA Modules"
+      title = paste0("Max PCA Loadings: CRISPR WGCNA Modules: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
     ) +
     scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
     scale_y_continuous(limits = c(0, 90)) +
-    theme_classic(base_size = 10) +
+    theme_classic(base_size = 8) +
     theme(legend.position = "none")
   
   ggsave(
-    filename = paste0(path.plots, "MaxPCALoadings_Polar_CRISPR_Modules.pdf"),
+    filename = paste0(path.plots, "MaxPCALoadings_Polar_CRISPR_Modules_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".pdf"),
     plot = p_polar_CRISPR, width = 5, height = 4, units = "in", device = cairo_pdf
   )
   
@@ -4333,19 +4391,18 @@ if (1) {
     labs(
       x = "r (magnitude)",
       y = "θ (degrees)",
-      title = "Max PCA Loadings: RNAi WGCNA Modules"
+      title = paste0("Max PCA Loadings: RNAi WGCNA Modules: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
     ) +
     scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
     scale_y_continuous(limits = c(0, 90)) +
-    theme_classic(base_size = 10) +
+    theme_classic(base_size = 8) +
     theme(legend.position = "none")
   
   ggsave(
-    filename = paste0(path.plots, "MaxPCALoadings_Polar_RNAi_Modules.pdf"),
+    filename = paste0(path.plots, "MaxPCALoadings_Polar_RNAi_Modules_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".pdf"),
     plot = p_polar_RNAi, width = 5, height = 4, units = "in", device = cairo_pdf
   )
 }
-
 
 ##### Melanoma / Differentiation Signature #####
 
