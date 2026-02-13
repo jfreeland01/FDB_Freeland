@@ -190,7 +190,7 @@ path.ctrp <- paste0(path.wd, "DataSets/CTRPv2/")
 ## Load in cell line info from depamp
 models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F)
 
-## lLoad in CTRP Data
+## Load in CTRP Data
 ctrp.expt   <- read.delim(paste0(path.ctrp,"v20.meta.per_experiment.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 ctrp.cell   <- read.delim(paste0(path.ctrp,"v20.meta.per_cell_line.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
 ctrp.inform <- read.delim(paste0(path.ctrp,"CTRPv2.0._INFORMER_SET.txt"), sep = "\t", stringsAsFactors = F, check.names = F)
@@ -4419,9 +4419,9 @@ if (OS == "Mac") {
 path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
 path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.plots   <- paste0(path.wd, "Plots/")
-path.mel     <- paste0(path.wd, "Melanoma/")
+path.mel     <- paste0(path.wd, "DataSets/Melanoma/")
 
-#### Step 1: Get Hallmark EMT gene set from MSigDB
+#### Get Hallmark EMT gene set from MSigDB
 if (1) {
 
   ## Get Hallmark EMT gene set
@@ -4437,30 +4437,42 @@ if (1) {
   
   ## Save gene list
   write.table(
-    data.frame(Gene = hallmark_emt),
+    x = data.frame(Gene = hallmark_emt),
     file = paste0(path.mel, "Hallmark_EMT_GeneSet.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
   
 }
 
-#### Load in Expression Data and Format
-counts <- read.table(
-  file = "RNA/Data/Counts_all80_BatchCor_DepthNorm_log2.txt",
-  sep = "\t",
-  header = TRUE)
+#### ssGSEA
+if (1) {
+  
+  ## Load in data and format
+  counts <- read.table(
+    file = paste0(path.dm, "OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv"),
+    sep = ",",
+    header = TRUE)
+  
+  counts_trim <- counts %>%
+    dplyr::filter(IsDefaultEntryForModel == "Yes") %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .)) %>%
+    dplyr::select(-X, -SequencingID, -IsDefaultEntryForModel, -ModelConditionID, -IsDefaultEntryForMC) %>%
+    tibble::column_to_rownames(var = "ModelID") %>%
+    t() %>%
+    data.frame()
+  
+  ## Calculate Signature via ssGSEA
+  run.ssGSEA2 <- function(exp_mat, gene_list, method = "ssgsea", norm = F){
+    gsvaPar <- GSVA::ssgseaParam(exp_mat, gene_list, normalize = norm)
+    as.data.frame(t(GSVA::gsva(gsvaPar)))
+  }
+  
+  EMT_scores <- run.ssGSEA2(
+    exp_mat = as.matrix(counts_trim),
+    gene_list = list(EMT = hallmark_emt)
+  )
 
-#### Calculate Signature via ssGSEA
-run.ssGSEA2 <- function(exp_mat, gene_list, method = "ssgsea", norm = F){
-  gsvaPar <- GSVA::ssgseaParam(exp_mat, gene_list, normalize = norm)
-  as.data.frame(t(GSVA::gsva(gsvaPar)))
 }
-
-EMT_scores <- run.ssGSEA2(
-  exp_mat = as.matrix(counts),
-  gene_list = hallmark_emt
-)
-
 
 
 
@@ -4471,178 +4483,6 @@ EMT_scores <- run.ssGSEA2(
 
 ### MOVE FROM HERE
 
-
-#### Step 2: Load expression data
-if (1) {
-  
-  cat("\n=== Step 2: Loading Expression Data ===\n")
-  
-  ## Load expression data (adjust filename if different)
-  expression_file <- paste0(path.dm, "OmicsExpressionProteinCodingGenesTPMLogp1.csv")
-  
-  if (file.exists(expression_file)) {
-    
-    expression <- read.delim(
-      file = expression_file,
-      sep = ",", 
-      stringsAsFactors = FALSE, 
-      check.names = FALSE
-    )
-    
-    cat("Expression data dimensions:", nrow(expression), "rows x", ncol(expression), "columns\n")
-    
-  } else {
-    
-    cat("ERROR: Expression file not found at:", expression_file, "\n")
-    cat("\nPlease check the following:\n")
-    cat("1. Is the filename correct?\n")
-    cat("2. Common DepMap expression file names:\n")
-    cat("   - OmicsExpressionProteinCodingGenesTPMLogp1.csv\n")
-    cat("   - OmicsExpressionGenesExpectedCountProfile.csv\n")
-    cat("   - CCLE_expression.csv\n")
-    cat("\nListing files in DataSets/DepMap_25Q3/:\n")
-    
-    files <- list.files(path.dm, pattern = "xpression|RNA|CCLE.*csv")
-    if (length(files) > 0) {
-      print(files)
-    } else {
-      cat("No expression files found. Please check the directory.\n")
-    }
-    
-    stop("Expression file not found. Please update the filename in the script.")
-  }
-  
-  ## Ensure DepMap_ID column exists
-  if (!"DepMap_ID" %in% names(expression)) {
-    if (all(grepl("^ACH-", rownames(expression)))) {
-      cat("Converting row names to DepMap_ID column\n")
-      expression <- expression %>%
-        tibble::rownames_to_column(var = "DepMap_ID")
-    } else {
-      stop("Cannot identify DepMap_ID column. Please check expression data format.")
-    }
-  }
-  
-  cat("First few DepMap_IDs:\n")
-  print(head(expression$DepMap_ID))
-  
-}
-
-#### Step 3: Calculate EMT signature (sum of z-scored expression)
-if (1) {
-  
-  cat("\n=== Step 3: Calculating EMT Signature ===\n")
-  
-  ## Find which EMT genes are in the expression data
-  emt_genes_available <- intersect(hallmark_emt, names(expression))
-  emt_genes_missing <- setdiff(hallmark_emt, names(expression))
-  
-  cat("EMT genes available in expression data:", length(emt_genes_available), "/", length(hallmark_emt), "\n")
-  cat("EMT genes missing:", length(emt_genes_missing), "\n")
-  
-  if (length(emt_genes_missing) > 0 & length(emt_genes_missing) < 20) {
-    cat("\nMissing genes:\n")
-    print(emt_genes_missing)
-  }
-  
-  ## Extract expression for EMT genes
-  expression_emt <- expression %>%
-    dplyr::select(DepMap_ID, all_of(emt_genes_available))
-  
-  cat("\nEMT expression matrix dimensions:", 
-      nrow(expression_emt), "cell lines x", 
-      ncol(expression_emt) - 1, "genes\n")
-  
-  ## Calculate z-scores for each gene (across cell lines)
-  cat("\nCalculating z-scores for each EMT gene across cell lines...\n")
-  
-  expression_emt_z <- expression_emt %>%
-    tibble::column_to_rownames("DepMap_ID") %>%
-    scale() %>%  # This z-scores each column (gene)
-    as.data.frame() %>%
-    tibble::rownames_to_column("DepMap_ID")
-  
-  ## Calculate EMT signature as sum of z-scores
-  cat("Calculating EMT signature as sum of z-scored gene expression...\n")
-  
-  emt_signature <- expression_emt_z %>%
-    dplyr::mutate(
-      EMT_Signature = rowSums(dplyr::select(., -DepMap_ID), na.rm = TRUE)
-    ) %>%
-    dplyr::select(DepMap_ID, EMT_Signature)
-  
-  ## Summary statistics
-  cat("\nEMT Signature Summary Statistics:\n")
-  print(summary(emt_signature$EMT_Signature))
-  
-  cat("\nNumber of cell lines with EMT signature:", nrow(emt_signature), "\n")
-  cat("Cell lines with missing values:", sum(is.na(emt_signature$EMT_Signature)), "\n")
-  
-  ## Save EMT signature
-  write.table(
-    emt_signature,
-    file = paste0(path.fig3, "EMT_Signature_Scores.txt"),
-    sep = "\t", quote = FALSE, row.names = FALSE
-  )
-  
-  cat("\nEMT signature saved to:", paste0(path.fig3, "EMT_Signature_Scores.txt"), "\n")
-  
-}
-
-#### Step 4: Visualize EMT signature distribution
-if (1) {
-  
-  cat("\n=== Step 4: Visualizing EMT Signature Distribution ===\n")
-  
-  ## Histogram of EMT signature
-  p_hist <- ggplot(emt_signature, aes(x = EMT_Signature)) +
-    geom_histogram(bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 1) +
-    labs(
-      x = "EMT Signature Score (sum of z-scores)",
-      y = "Number of Cell Lines",
-      title = "Distribution of EMT Differentiation Signature",
-      subtitle = paste0("Based on ", length(emt_genes_available), " Hallmark EMT genes")
-    ) +
-    theme_bw(base_size = 12)
-  
-  ggsave(
-    filename = paste0(path.plots, "EMT_Signature_Distribution.pdf"),
-    plot = p_hist,
-    width = 8,
-    height = 6,
-    device = cairo_pdf
-  )
-  
-  cat("Distribution plot saved to:", paste0(path.plots, "EMT_Signature_Distribution.pdf"), "\n")
-  
-  ## Density plot
-  p_density <- ggplot(emt_signature, aes(x = EMT_Signature)) +
-    geom_density(fill = "steelblue", alpha = 0.5, size = 1) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 1) +
-    annotate("text", x = max(emt_signature$EMT_Signature) * 0.7, y = Inf, 
-             vjust = 1.5, label = "High EMT\n(Mesenchymal-like)", size = 4) +
-    annotate("text", x = min(emt_signature$EMT_Signature) * 0.7, y = Inf,
-             vjust = 1.5, label = "Low EMT\n(Epithelial-like)", size = 4) +
-    labs(
-      x = "EMT Signature Score",
-      y = "Density",
-      title = "EMT Signature Distribution"
-    ) +
-    theme_bw(base_size = 12)
-  
-  ggsave(
-    filename = paste0(path.plots, "EMT_Signature_Density.pdf"),
-    plot = p_density,
-    width = 8,
-    height = 6,
-    device = cairo_pdf
-  )
-  
-  print(p_hist)
-  print(p_density)
-  
-}
 
 #### Step 5: Add cell line metadata
 if (1) {
