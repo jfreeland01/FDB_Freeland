@@ -25,6 +25,9 @@ if (1) {
   library(openxlsx)
   library(doParallel)
   library(GSVA)
+  
+  library(MASS)
+  library(fitdistrplus)
 }
 
 #### Imputation: CRISPR (NA's in Data) ####
@@ -4200,7 +4203,7 @@ if (1) {
   
 }
 
-#### Run PCA 
+#### Run PCA
 if (1) {
   
   source("/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/PCA_from_file.R")
@@ -4222,6 +4225,47 @@ if (1) {
     fread = FALSE
   )
 }
+
+### Plot the PCA
+source("/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/PCA_plot.R")
+
+CRISPR_PCA_input <- read.table(file = CRISPR_path, sep = "\t", header = T)
+
+model <- read.csv(paste0(path.dm, "Model.csv"))
+model$ModelID <- gsub("-", "\\.", model$ModelID)
+
+info_name <- colnames(CRISPR_PCA_input)
+info_type <- model$OncotreeLineage[match(info_name, model$ModelID)]
+
+pdf(file = paste0(path.plots, "PCA_CRISPR_common.pdf"), height = 6, width = 10)
+PCA_plot(
+  file = paste0(path.pca, "CRISPR_common_PCA_prcomp_scores.txt"),
+  info.name = info_name,
+  info.type = as.factor(info_type),
+  title = "CRISPR Common",
+  ellipse = F,
+  labels = F,
+  colors = NULL,
+  info.shape = NULL,
+  shape = NULL,
+  PCx="PC1", PCy="PC2", conf = 0.95, density = F, fliph = F, flipv = F, show.legend = TRUE
+)
+dev.off()
+
+pdf(file = paste0(path.plots, "PCA_RNAi_common.pdf"), height = 6, width = 10)
+PCA_plot(
+  file = paste0(path.pca, "RNAi_common_PCA_prcomp_scores.txt"),
+  info.name = info_name,
+  info.type = as.factor(info_type),
+  title = "RNAi Common",
+  ellipse = F,
+  labels = F,
+  colors = NULL,
+  info.shape = NULL,
+  shape = NULL,
+  PCx="PC1", PCy="PC2", conf = 0.95, density = F, fliph = F, flipv = F, show.legend = TRUE
+)
+dev.off()
 
 ### Generate table of distances and theta and create plots
 if (1) {
@@ -4420,6 +4464,7 @@ path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
 path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.plots   <- paste0(path.wd, "Plots/")
 path.mel     <- paste0(path.wd, "DataSets/Melanoma/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
 
 #### Get Hallmark EMT gene set from MSigDB
 if (1) {
@@ -4433,7 +4478,7 @@ if (1) {
     dplyr::pull(gene_symbol) %>%
     unique()
   
-  cat("Number of genes in Hallmark EMT gene set:", length(hallmark_emt), "\n")
+  cat("Number of genes in Hallmark EMT gene set:", length(hallmark_emt))
   
   ## Save gene list
   write.table(
@@ -4461,6 +4506,8 @@ if (1) {
     t() %>%
     data.frame()
   
+  colnames(counts_trim) <- gsub("\\.", "-", colnames(counts_trim))
+  
   ## Calculate Signature via ssGSEA
   run.ssGSEA2 <- function(exp_mat, gene_list, method = "ssgsea", norm = F){
     gsvaPar <- GSVA::ssgseaParam(exp_mat, gene_list, normalize = norm)
@@ -4474,109 +4521,1464 @@ if (1) {
 
 }
 
+#### Score EMT signature
 
+## Method for scoring the gene set across cell lines
+score_method <- "ssgsea" # zscore or ssgsea
 
-
-
-
-
-
-### MOVE FROM HERE
-
-
-#### Step 5: Add cell line metadata
 if (1) {
   
-  cat("\n=== Step 5: Adding Cell Line Metadata ===\n")
-  
-  ## Load model information
-  models <- read.delim(
-    file = paste0(path.dm, "Model.csv"),
+  ## Load in data and format
+  counts <- read.table(
+    file = paste0(path.dm, "OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv"),
     sep = ",",
+    header = TRUE)
+  
+  counts_trim <- counts %>%
+    dplyr::filter(IsDefaultEntryForModel == "Yes") %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .)) %>%
+    dplyr::select(-X, -SequencingID, -IsDefaultEntryForModel, -ModelConditionID, -IsDefaultEntryForMC) %>%
+    tibble::column_to_rownames(var = "ModelID") %>%
+    t() %>%
+    data.frame()
+  
+  colnames(counts_trim) <- gsub("\\.", "-", colnames(counts_trim))
+  
+  ## Score gene set
+  if (score_method == "ssgsea") {
+    
+    ## ssGSEA: single-sample enrichment score per cell line
+    run.ssGSEA2 <- function(exp_mat, gene_list, norm = FALSE) {
+      gsvaPar <- GSVA::ssgseaParam(exp_mat, gene_list, normalize = norm)
+      as.data.frame(t(GSVA::gsva(gsvaPar)))
+    }
+    
+    EMT_scores <- run.ssGSEA2(
+      exp_mat   = as.matrix(counts_trim),
+      gene_list = list(EMT = hallmark_emt)
+    )
+    
+    cat("EMT scores computed via ssGSEA")
+    
+  } else {
+    
+    ## Z-score
+    
+    ## Genes present in both the expression matrix and the gene set
+    emt_genes_present <- hallmark_emt[hallmark_emt %in% rownames(counts_trim)]
+    cat("EMT genes present in expression matrix:", length(emt_genes_present),
+        "of", length(hallmark_emt), "\n")
+    
+    ## Z-score each gene across cell lines (row-wise z-score)
+    counts_mat <- as.matrix(counts_trim)
+    counts_z   <- t(scale(t(counts_mat)))   # scale() works on columns, so transpose twice
+    
+    ## Subset to EMT genes and average per cell line
+    emt_z <- counts_z[emt_genes_present, , drop = FALSE]
+    emt_sum_z <- colSums(emt_z, na.rm = TRUE)
+    
+    ## Format to match ssGSEA output structure (cell lines x 1 column named "EMT")
+    EMT_scores <- data.frame(
+      EMT = emt_sum_z,
+      row.names = names(emt_mean_z)
+    )
+    
+    cat("EMT scores computed via mean z-score across", length(emt_genes_present), "genes")
+    
+  }
+  
+  cat("EMT score range:", round(range(EMT_scores$EMT), 3), "\n")
+  cat("Number of cell lines scored:", nrow(EMT_scores), "\n")
+  
+  write.table(
+    x = EMT_scores,
+    file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_", score_method, ".txt"),
+    sep = "\t",
+    quote = F,
+    row.names = 
+  )
+}
+
+#### Plot
+
+## Set Parameters
+
+score_method <- "zscore"    # zscore or ssgsea
+weight       <- "function"  # function (standard, WLS via weights argument, abs weights) or prior (direct multiply wx transformation, signed weights)
+
+# Lineage filtering — uses exact OncotreeLineage values from Model.csv (one or both must = NULL)
+keep   <- NULL # only retain these lineages  e.g. c("Skin")
+remove <- c("Lymphoid", "Myeloid") # drop these lineages         e.g. c("Lymphoid", "Myeloid")
+
+# Adrenal Gland, Ampulla of Vater, Biliary Tract, Bladder/Urinary Tract, Bone, Bowel, Breast, Cervix, CNS/Brain, Embryonal, Esophagus/Stomach, Eye, Fibroblast, Hair, Head and Neck, Kidney, Liver, Lung, Lymphoid, Muscle, Myeloid , Normal, Other, Ovary/Fallopian Tube, Pancreas Peripheral Nervous System, Pleura, Prostate, Skin, Soft Tissue, Testis, Thyroid, Uterus, Vulva/Vagina
+
+if (1) {
+  
+  ## Read in PLS-C variates
+  PLS_variates <- read.delim(
+    file = paste0(path.pls, "PLS_Mode.canonical_X.CRISPR_Y.CTRP_X.variates.txt"),
+    sep = "\t", stringsAsFactors = F, check.names = F
+  )
+  
+  weights_comp2 <- PLS_variates$comp2
+  names(weights_comp2) <- PLS_variates$Score
+  
+  ## Read in signature score
+  EMT_scores <- read.table(
+    file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_", score_method, ".txt"),
+    sep = "\t"
+  )
+  
+  ## Read in CRISPR Data
+  CRISPR <- read.delim(
+    file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"),
+    sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
+  ) %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .))
+  
+  ## Read in Model file
+  model <- read.csv(paste0(path.dm, "Model.csv"))
+  
+  ## Find common cell lines (all, before filtering)
+  common_ids <- Reduce(intersect, list(
+    rownames(EMT_scores),
+    rownames(CRISPR),
+    names(weights_comp2)
+  ))
+  cat("Number of common cell lines (pre-filter):", length(common_ids))
+  
+  ## Build merged data frame
+  df <- data.frame(
+    ModelID  = common_ids,
+    EMT      = EMT_scores[common_ids, "EMT"],
+    GPX4     = CRISPR[common_ids, "GPX4"],
+    MED12    = CRISPR[common_ids, "MED12"],
+    W        = weights_comp2[common_ids]
+  )
+  df <- merge(df, model[, c("ModelID", "OncotreeLineage", "OncotreePrimaryDisease")], by = "ModelID")
+  
+  ## Apply lineage filter
+  if (!is.null(keep) && length(keep) > 0) {
+    
+    keep_pattern <- paste(keep, collapse = "|")
+    df <- df %>%
+      dplyr::filter(grepl(keep_pattern, OncotreeLineage, ignore.case = TRUE))
+    cat("Keeping lineages matching:", paste(keep, collapse = ", "))
+    
+  } else if (!is.null(remove) && length(remove) > 0) {
+    
+    df <- df %>%
+      dplyr::filter(!OncotreeLineage %in% remove)
+    cat("Removing lineages:", paste(remove, collapse = ", "))
+    
+  } else {
+    cat("No lineage filter applied — using all cell lines")
+  }
+  cat("Number of cell lines after filtering:", nrow(df))
+  
+  ## Absolute weights (required for WLS; also used for point sizing)
+  df$W_abs        <- abs(df$W)
+  df$variate_sign <- ifelse(df$W >= 0, "Positive Variate", "Negative Variate")
+  
+  ## Cancer type grouping
+  df$cancer_group <- dplyr::case_when(
+    grepl("Brain",           df$OncotreeLineage, ignore.case = TRUE) ~ "Brain Cancer",
+    grepl("Gastric|Stomach", df$OncotreeLineage, ignore.case = TRUE) ~ "Gastric Cancer",
+    grepl("Head|Neck",       df$OncotreeLineage, ignore.case = TRUE) ~ "Head and Neck Cancer",
+    grepl("Kidney|Renal",    df$OncotreeLineage, ignore.case = TRUE) ~ "Kidney Cancer",
+    grepl("Skin|Melanoma",   df$OncotreeLineage, ignore.case = TRUE) ~ "Skin Cancer",
+    TRUE ~ "Other"
+  )
+  
+  ## Reorder so "Other" plots first (behind)
+  df <- df[order(df$cancer_group == "Other", decreasing = TRUE), ]
+  
+  ## Update common_ids to match filtered df
+  common_ids <- df$ModelID
+  
+  ## Define weighted_r based on weight switch
+  if (weight == "function") {
+    
+    weighted_r <- function(x, y, w) {
+      fit       <- lm(y ~ x, weights = abs(w)) # lm (response ~ predictor)
+      r2        <- summary(fit)$r.squared
+      sign_coef <- sign(coef(fit)["x"])
+      r         <- sign_coef * sqrt(r2)
+      return(list(r = r, r2 = r2, fit = fit, beta = coef(fit)))
+    }
+    
+    smooth_weight <- df$W_abs
+    bar_w         <- abs(weights_comp2[common_ids])
+    
+  } else {
+    
+    weighted_r <- function(x, y, w) {
+      wx        <- w * x
+      fit       <- lm(y ~ wx) # lm (response ~ predictor)
+      r2        <- summary(fit)$r.squared
+      sign_coef <- sign(coef(fit)["wx"])
+      r         <- sign_coef * sqrt(r2)
+      return(list(r = r, r2 = r2, fit = fit, beta = coef(fit)))
+    }
+    
+    smooth_weight <- df$W_abs
+    bar_w         <- weights_comp2[common_ids]
+    
+  }
+  
+  ## Compute weighted r for GPX4 and MED12
+  gpx4_wr  <- weighted_r(df$GPX4,  df$EMT, df$W)
+  med12_wr <- weighted_r(df$MED12, df$EMT, df$W)
+  
+  ## Unweighted correlations for comparison
+  gpx4_unw  <- cor(df$GPX4,  df$EMT)
+  med12_unw <- cor(df$MED12, df$EMT)
+  
+  cat("GPX4  unweighted r:", round(gpx4_unw,  4), " | weighted r:", round(gpx4_wr$r,  4))
+  cat("MED12 unweighted r:", round(med12_unw, 4), " | weighted r:", round(med12_wr$r, 4))
+  
+  ## Color palette
+  cancer_colors <- c(
+    "Brain Cancer"         = "#87CEEB",
+    "Gastric Cancer"       = "#00BFFF",
+    "Head and Neck Cancer" = "#FFA500",
+    "Kidney Cancer"        = "#90EE90",
+    "Skin Cancer"          = "#FFB6C1",
+    "Other"                = "#C0C0C0"
+  )
+  
+  ## Panel A: Bar chart (side-by-side raw unweighted vs weighted)
+  genes_gpx4 <- c("GPX4", "SEPSECS", "PSTK", "EEFSEC", "SECISBP2", "SEPHS2")
+  genes_med  <- c("MED24", "MED16", "MED25", "MED10", "MED19", "MED1", "MED23", "MED9", "MED15", "MED12")
+  all_genes  <- c(genes_gpx4, genes_med)
+  all_genes  <- all_genes[all_genes %in% colnames(CRISPR)]
+  
+  bar_df <- data.frame(
+    gene = all_genes,
+    unweighted = sapply(all_genes, function(g) {
+      cor(CRISPR[common_ids, g], EMT_scores[common_ids, "EMT"])
+    }),
+    weighted = sapply(all_genes, function(g) {
+      weighted_r(
+        x = CRISPR[common_ids, g],
+        y = EMT_scores[common_ids, "EMT"],
+        w = bar_w
+      )$r
+    }),
     stringsAsFactors = FALSE
   )
   
-  cat("Model metadata loaded:", nrow(models), "cell lines\n")
+  bar_df$gene_group <- ifelse(bar_df$gene %in% genes_gpx4, "GPX4 module", "MED12 module")
+  bar_df$gene       <- factor(bar_df$gene, levels = all_genes)
   
-  ## Merge EMT signature with metadata
-  emt_with_metadata <- emt_signature %>%
-    dplyr::left_join(
-      models %>% dplyr::select(
-        ModelID, 
-        StrippedCellLineName,
-        OncotreeLineage, 
-        OncotreePrimaryDisease,
-        OncotreeSubtype
+  bar_long <- bar_df %>%
+    tidyr::pivot_longer(cols = c(unweighted, weighted), names_to = "type", values_to = "value") %>%
+    dplyr::mutate(
+      fill_group = dplyr::case_when(
+        type == "unweighted" & gene_group == "GPX4 module"  ~ "GPX4 unweighted",
+        type == "weighted"   & gene_group == "GPX4 module"  ~ "GPX4 weighted",
+        type == "unweighted" & gene_group == "MED12 module" ~ "Mediator unweighted",
+        type == "weighted"   & gene_group == "MED12 module" ~ "Mediator weighted"
       ),
-      by = c("DepMap_ID" = "ModelID")
+      fill_group = factor(fill_group, levels = c(
+        "GPX4 unweighted", "GPX4 weighted",
+        "Mediator unweighted", "Mediator weighted"
+      ))
     )
   
-  cat("Merged dataset:", nrow(emt_with_metadata), "cell lines with metadata\n")
-  
-  ## Save merged data
-  write.table(
-    emt_with_metadata,
-    file = paste0(path.fig3, "EMT_Signature_with_Metadata.txt"),
-    sep = "\t", quote = FALSE, row.names = FALSE
+  bar_colors <- c(
+    "GPX4 unweighted"     = "#1a3f6f",  # dark blue
+    "GPX4 weighted"       = "#6aaed6",  # light blue
+    "Mediator unweighted" = "#4b0070",  # dark purple
+    "Mediator weighted"   = "#b07cc6"   # light purple
   )
   
-  ## Show top and bottom cell lines by EMT signature
-  cat("\nTop 10 cell lines with highest EMT (most mesenchymal-like):\n")
-  print(
-    emt_with_metadata %>%
-      dplyr::arrange(desc(EMT_Signature)) %>%
-      dplyr::select(StrippedCellLineName, OncotreeLineage, EMT_Signature) %>%
-      head(10)
-  )
+  p_bar <- ggplot2::ggplot(bar_long, ggplot2::aes(x = gene, y = value, fill = fill_group)) +
+    ggplot2::geom_bar(stat = "identity", position = "dodge") +
+    ggplot2::geom_hline(yintercept = 0, color = "black", linewidth = 0.4) +
+    ggplot2::scale_fill_manual(values = bar_colors, name = "") +
+    ggplot2::labs(x = "", y = "Correlation Coefficients") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      axis.text.x     = ggplot2::element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
   
-  cat("\nTop 10 cell lines with lowest EMT (most epithelial-like):\n")
-  print(
-    emt_with_metadata %>%
-      dplyr::arrange(EMT_Signature) %>%
-      dplyr::select(StrippedCellLineName, OncotreeLineage, EMT_Signature) %>%
-      head(10)
-  )
-  
-  ## Plot by lineage
-  cat("\n=== Creating lineage-specific EMT plots ===\n")
-  
-  ## Get top lineages by count
-  top_lineages <- emt_with_metadata %>%
-    dplyr::filter(!is.na(OncotreeLineage)) %>%
-    dplyr::count(OncotreeLineage, sort = TRUE) %>%
-    head(10) %>%
-    dplyr::pull(OncotreeLineage)
-  
-  emt_top_lineages <- emt_with_metadata %>%
-    dplyr::filter(OncotreeLineage %in% top_lineages)
-  
-  p_lineage <- ggplot(
-    emt_top_lineages,
-    aes(x = reorder(OncotreeLineage, EMT_Signature, FUN = median), 
-        y = EMT_Signature)
-  ) +
-    geom_boxplot(aes(fill = OncotreeLineage), alpha = 0.7, outlier.shape = NA) +
-    geom_jitter(width = 0.2, alpha = 0.3, size = 1) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    coord_flip() +
-    scale_fill_brewer(palette = "Set3") +
-    labs(
-      x = "Cancer Lineage",
-      y = "EMT Signature Score",
-      title = "EMT Signature by Cancer Lineage",
-      subtitle = "Top 10 lineages by cell line count"
+  ## Panel B: GPX4 scatter
+  p_gpx4 <- ggplot2::ggplot(df, ggplot2::aes(x = EMT, y = GPX4)) +
+    ggplot2::geom_point(
+      ggplot2::aes(size = W_abs, shape = variate_sign, color = cancer_group),
+      alpha = 0.6
     ) +
-    theme_bw(base_size = 12) +
-    theme(legend.position = "none")
+    ggplot2::geom_smooth(
+      ggplot2::aes(weight = smooth_weight), method = "lm", se = FALSE,
+      color = "black", linewidth = 0.7
+    ) +
+    ggplot2::geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+    ggplot2::scale_color_manual(values = cancer_colors, name = "Cancer Types") +
+    ggplot2::scale_shape_manual(
+      values = c("Positive Variate" = 16, "Negative Variate" = 17),
+      name = "Variate Score"
+    ) +
+    ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
+    ggplot2::labs(
+      x = "Differentiation Score",
+      y = "GPX4 CRISPR Dependency\nLess dependent \u2190\u2192 More dependent"
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "none")
+  
+  ## Panel C: MED12 scatter
+  p_med12 <- ggplot2::ggplot(df, ggplot2::aes(x = EMT, y = MED12)) +
+    ggplot2::geom_point(
+      ggplot2::aes(size = W_abs, shape = variate_sign, color = cancer_group),
+      alpha = 0.6
+    ) +
+    ggplot2::geom_smooth(
+      ggplot2::aes(weight = smooth_weight), method = "lm", se = FALSE,
+      color = "black", linewidth = 0.7
+    ) +
+    ggplot2::geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+    ggplot2::scale_color_manual(values = cancer_colors, name = "Cancer Types") +
+    ggplot2::scale_shape_manual(
+      values = c("Positive Variate" = 16, "Negative Variate" = 17),
+      name = "Variate Score"
+    ) +
+    ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
+    ggplot2::labs(x = "Differentiation Score", y = "MED12 CRISPR Dependency") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "none")
+  
+  ## Shared legend
+  p_legend <- ggplot2::ggplot(df, ggplot2::aes(x = EMT, y = GPX4)) +
+    ggplot2::geom_point(
+      ggplot2::aes(size = W_abs, shape = variate_sign, color = cancer_group),
+      alpha = 0.6
+    ) +
+    ggplot2::scale_color_manual(values = cancer_colors, name = "Cancer Types") +
+    ggplot2::scale_shape_manual(
+      values = c("Positive Variate" = 16, "Negative Variate" = 17),
+      name = "Variate Score"
+    ) +
+    ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "right")
+  
+  shared_legend <- cowplot::get_legend(p_legend)
+  
+  ## Combine panels
+  bottom_row <- cowplot::plot_grid(
+    p_gpx4, p_med12, shared_legend,
+    ncol = 3, rel_widths = c(1, 1, 0.4),
+    labels = c("B", "C", "")
+  )
+  
+  full_fig <- cowplot::plot_grid(
+    p_bar, bottom_row,
+    nrow = 2, rel_heights = c(1, 1),
+    labels = c("A", "")
+  )
+  
+  ## Build save name from parameters
+  weight_tag <- ifelse(weight == "function", "WLS", "PRIOR")
+  
+  filter_tag <- dplyr::case_when(
+    !is.null(keep)   & length(keep)   > 0 ~ paste0("KEEP.", paste(keep,   collapse = ".")),
+    !is.null(remove) & length(remove) > 0 ~ paste0("REM.",  paste(remove, collapse = ".")),
+    TRUE ~ "ALL"
+  )
+  
+  save_name <- paste0(
+    "EMT_Differentiation_GPX4_MED12_Figure3",
+    "_", filter_tag,
+    "_", weight_tag,
+    "_", score_method,
+    ".pdf"
+  )
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, save_name),
+    plot = full_fig, width = 12, height = 8
+  )
+  
+  cat("Saved:", save_name)
+  
+}
+
+
+
+##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
+#
+# This implements the Drug Potentiality metric from the paper, substituting
+# PLS-C (canonical mode, X=CRISPR, Y=CTRP) in place of rCCA.
+#
+# Steps:
+#   1. Load PLS-C X-loadings (CRISPR side) and PCA loadings
+#   2. Summarize each gene by its max absolute loading across top 10 components
+#   3. Fit each summarized loading vector to a log-normal distribution
+#   4. Convert each gene's summarized loading to a quantile (CDF value)
+#   5. Drug Potentiality Score = CCA_quantile - PCA_quantile
+#   6. Magnitude = sqrt(summarized_PLS^2 + summarized_PCA^2)
+#   7. Plot: x = magnitude, y = potentiality score, colored by score (rainforest/desert)
+
+### Set OS ###
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
+path.pca     <- paste0(path.wd, "DataSets/PCA/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.dp      <- paste0(path.wd, "DataSets/DrugPotentiality/")
+
+## Method switch: "PLS" or "rCCA"
+method   <- "rCCA"  # "PLS" or "rCCA"
+
+## PLS parameters (used when method == "PLS")
+pls_mode <- "canonical"
+X_source <- "CTRP"
+Y_source <- "CRISPR"
+
+## rCCA parameters (used when method == "rCCA")
+rcca_mode      <- "shrinkage"  # "shrinkage" or "ridge"
+lambda1_manual <- 0.20
+lambda2_manual <- 0.10
+
+## Build file_tag, path, and component column prefix based on method
+if (method == "PLS") {
+  ## PLS: X = CRISPR (genes), Y = CTRP (drugs) -> gene co-signal is in _X.loadings.txt
+  file_tag    <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source)
+  path_drug   <- path.pls
+  gene_side   <- "X"    # which loadings file has genes
+  comp_prefix <- "comp" # PLS columns: comp1, comp2, ...
+} else {
+  ## rCCA: X = CTRP (drugs), Y = CRISPR (genes) -> gene co-signal is in _Y.loadings.txt
+  if (rcca_mode == "shrinkage") {
+    file_tag <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source)
+  } else {
+    file_tag <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
+                       "_lambda2.", format(lambda2_manual, digits = 3),
+                       "_X.", X_source, "_Y.", Y_source)
+  }
+  path_drug   <- path.rcca
+  gene_side   <- "Y"   # rCCA X = CTRP drugs, so genes are on the Y side
+  comp_prefix <- "X"   # rCCA loading columns are always named X1, X2, ...
+}
+
+## Number of components to summarize over (paper uses top 10)
+n_comp <- 10
+
+### Step 1: Load drug-gene co-embedding loadings (PLS-C or rCCA)
+if (1) {
+  
+  drug_loadings_raw <- read.delim(
+    file = paste0(path_drug, file_tag, "_", gene_side, ".loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
+  
+  ## Column names differ: PLS uses comp1/comp2, rCCA uses X1/X2
+  comp_cols_drug <- paste0(comp_prefix, 1:n_comp)
+  comp_cols_drug <- comp_cols_drug[comp_cols_drug %in% names(drug_loadings_raw)]
+  
+  drug_loadings_sub <- drug_loadings_raw %>%
+    dplyr::select(Loading, all_of(comp_cols_drug))
+  
+  cat(method, gene_side, "-loadings (gene side):", nrow(drug_loadings_sub), "genes x", length(comp_cols_drug), "components\n")
+}
+
+### Step 2: Load PCA loadings (gene-only signal)
+if (1) {
+  
+  ## These are the loadings from PCA_from_file() run on CRISPR_common
+  ## File name follows the pattern: <input>_prcomp_loadings.txt
+  PCA_loadings <- read.delim(
+    file = paste0(path.pca, "CRISPR_common_PCA_prcomp_loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
+  
+  ## Keep only PC1:PC{n_comp}
+  comp_cols_pca <- paste0("PC", 1:n_comp)
+  comp_cols_pca <- comp_cols_pca[comp_cols_pca %in% names(PCA_loadings)]
+  
+  PCA_loadings_sub <- PCA_loadings %>%
+    dplyr::select(Loading, all_of(comp_cols_pca))
+  
+  cat("PCA loadings: ", nrow(PCA_loadings_sub), "genes x", length(comp_cols_pca), "components\n")
+}
+
+### Step 3: Summarize — max absolute loading per gene across top 10 components
+if (1) {
+  
+  summarize_max_abs <- function(df, gene_col, comp_cols, value_suffix) {
+    df %>%
+      tidyr::pivot_longer(
+        cols      = all_of(comp_cols),
+        names_to  = "component",
+        values_to = "loading"
+      ) %>%
+      dplyr::mutate(abs_loading = abs(loading)) %>%
+      dplyr::group_by(.data[[gene_col]]) %>%
+      dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+      dplyr::ungroup() %>%
+      dplyr::rename(
+        !!paste0("component_", value_suffix) := component,
+        !!paste0("loading_", value_suffix)    := loading,
+        !!paste0("abs_loading_", value_suffix) := abs_loading
+      )
+  }
+  
+  drug_max <- summarize_max_abs(drug_loadings_sub, "Loading", comp_cols_drug, "drug")
+  PCA_max  <- summarize_max_abs(PCA_loadings_sub,  "Loading", comp_cols_pca,  "PCA")
+  
+  cat("Genes summarized —", method, ":", nrow(drug_max), " PCA:", nrow(PCA_max), "\n")
+}
+
+### Step 4: Fit log-normal distribution and convert to quantiles
+if (1) {
+  
+  ## The paper fits each vector (PLS summarized loadings, PCA summarized loadings)
+  ## separately to a log-normal distribution and uses the fitted CDF to get quantiles.
+  
+  fit_lognormal_quantile <- function(x, label = "") {
+    
+    x_pos <- x[x > 0 & !is.na(x)]
+    
+    ## Fit log-normal (and competitors) to check AIC
+    fit_ln  <- fitdistrplus::fitdist(x_pos, "lnorm")
+    fit_wb  <- fitdistrplus::fitdist(x_pos, "weibull")
+    fit_gm  <- fitdistrplus::fitdist(x_pos, "gamma")
+    
+    aic_table <- data.frame(
+      distribution = c("lognormal", "weibull", "gamma"),
+      AIC          = c(fit_ln$aic, fit_wb$aic, fit_gm$aic)
+    )
+    cat("\nAIC comparison for", label, "loadings:\n")
+    print(aic_table)
+    cat("Best fit:", aic_table$distribution[which.min(aic_table$AIC)], "\n")
+    
+    ## Use log-normal as per the paper regardless (paper states lognormal best)
+    meanlog <- fit_ln$estimate["meanlog"]
+    sdlog   <- fit_ln$estimate["sdlog"]
+    
+    ## Convert each gene's abs loading to a quantile [0,1] via fitted log-normal CDF
+    ## Genes with abs_loading = 0 get quantile = 0
+    q <- plnorm(x, meanlog = meanlog, sdlog = sdlog)
+    q[is.na(x)] <- NA
+    
+    list(
+      quantile = q,
+      fit      = fit_ln,
+      aic_table = aic_table
+    )
+  }
+  
+  drug_fit <- fit_lognormal_quantile(drug_max$abs_loading_drug, label = method)
+  PCA_fit  <- fit_lognormal_quantile(PCA_max$abs_loading_PCA,  label = "PCA")
+  
+  drug_max$quantile_drug <- drug_fit$quantile
+  PCA_max$quantile_PCA   <- PCA_fit$quantile
+}
+
+### Step 5: Merge and compute Drug Potentiality Score
+if (1) {
+  
+  DP <- merge(
+    drug_max %>% dplyr::select(Loading, abs_loading_drug, quantile_drug, component_drug),
+    PCA_max  %>% dplyr::select(Loading, abs_loading_PCA,  quantile_PCA,  component_PCA),
+    by = "Loading"
+  )
+  
+  DP <- DP %>%
+    dplyr::mutate(
+      ## Drug Potentiality Score: drug co-signal quantile minus PCA quantile
+      drug_potentiality = quantile_drug - quantile_PCA,
+      
+      ## Magnitude: Euclidean distance to origin using summarized abs loadings
+      magnitude = sqrt(abs_loading_drug^2 + abs_loading_PCA^2),
+      
+      ## Categorical label
+      category = dplyr::case_when(
+        drug_potentiality >  0.5  ~ "Drug Rainforest",
+        drug_potentiality < -0.5  ~ "Drug Desert",
+        TRUE                       ~ "Neutral"
+      )
+    ) %>%
+    dplyr::arrange(desc(drug_potentiality))
+  
+  cat("\nDrug Potentiality Score summary:\n")
+  print(summary(DP$drug_potentiality))
+  cat("\nCategory counts:\n")
+  print(table(DP$category))
+}
+
+### Step 6: Add gene annotations for labeling
+if (1) {
+  
+  ## Auto: top 10 and bottom 10 by drug potentiality score
+  top10    <- DP %>% dplyr::arrange(desc(drug_potentiality)) %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
+  bottom10 <- DP %>% dplyr::arrange(drug_potentiality)      %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
+  
+  ## Manual curation list (from paper figure + your existing annotation groups)
+  genes_manual <- c(
+    ## Neutral examples (known drug targets at zero line)
+    "BRAF", "EGFR", "PIK3CA", "ERBB2",
+    ## Desert examples
+    "KRAS", "MYC", "MYCN", "PTEN", "TP53",
+    ## Your existing annotation groups
+    "GPX4", "MDM2", "MDM4", "SOX10", "DUSP4",
+    "BCL2", "BCL2L1", "MCL1", "MED12",
+    "SRC", "ABL1", "LCK", "LYN",
+    "MAPK1", "MITF", "SOX9", "PEA15"
+  )
+  
+  all_labels <- unique(c(top10, bottom10, genes_manual))
+  DP$label   <- ifelse(DP$Loading %in% all_labels, DP$Loading, NA_character_)
+  
+  ## Tag label source — drives separate text colors in the plot
+  DP$label_group <- dplyr::case_when(
+    DP$Loading %in% top10    ~ "top10",
+    DP$Loading %in% bottom10 ~ "bottom10",
+    !is.na(DP$label)         ~ "manual",
+    TRUE                     ~ NA_character_
+  )
+}
+
+### Step 7: Save output table
+if (1) {
+  
+  write.table(
+    x         = DP,
+    file      = paste0(path.dp, "DrugPotentiality_", file_tag, ".txt"),
+    sep       = "\t", quote = FALSE, row.names = FALSE
+  )
+  cat("Saved drug potentiality table.\n")
+}
+
+### Step 8: Plot — replicating Figure 4B from the paper
+if (1) {
+  
+  ## Color gradient: Drug Desert (red/orange) → Neutral (white/purple) → Rainforest (green)
+  ## Use a continuous scale keyed to drug_potentiality score
+  
+  ## Percentile cutoffs for band boundaries and dashed lines
+  cutoffs <- quantile(DP$drug_potentiality, probs = c(0.01, 0.05, 0.10, 0.50, 0.90, 0.95, 0.99))
+  cat("\nPercentile cutoffs:\n"); print(round(cutoffs, 4))
+  
+  ## Assign each gene to a discrete color band.
+  ## Everything between 50th desert and 50th forest is one single neutral color.
+  DP <- DP %>%
+    dplyr::mutate(
+      color_band = dplyr::case_when(
+        drug_potentiality >= cutoffs["99%"] ~ "01_forest_1st",
+        drug_potentiality >= cutoffs["95%"] ~ "02_forest_5th",
+        drug_potentiality >= cutoffs["90%"] ~ "03_forest_10th",
+        drug_potentiality >= cutoffs["50%"] ~ "04_neutral",   # 50th forest to top of rainforest bands
+        drug_potentiality >= cutoffs["10%"] ~ "04_neutral",   # 10th desert to 50th forest: neutral
+        drug_potentiality >= cutoffs["5%"]  ~ "05_desert_10th",
+        drug_potentiality >= cutoffs["1%"]  ~ "06_desert_5th",
+        TRUE                                ~ "07_desert_1st"
+      )
+    )
+  
+  ## 7 discrete colors; neutral spans 50th desert to 50th forest (one color)
+  band_colors <- c(
+    "01_forest_1st"  = "#004d00",
+    "02_forest_5th"  = "#1a7a1a",
+    "03_forest_10th" = "#4caf50",
+    "04_neutral"     = "#9b72b0",
+    "05_desert_10th" = "#f5c542",
+    "06_desert_5th"  = "#e07b00",
+    "07_desert_1st"  = "#8B3a00"
+  )
+  
+  ## Map band names to numeric midpoints for gradient legend
+  band_order     <- c("01_forest_1st","02_forest_5th","03_forest_10th",
+                      "04_neutral","05_desert_10th","06_desert_5th","07_desert_1st")
+  band_midpoints <- c(0.995, 0.97, 0.925, 0.0, -0.55, -0.80, -0.995)
+  
+  DP <- DP %>%
+    dplyr::mutate(color_band_num = band_midpoints[match(color_band, band_order)])
+  
+  ## Order so labeled points plot on top
+  DP_plot <- DP %>%
+    dplyr::arrange(!is.na(label))
+  
+  p_dp <- ggplot(DP_plot, aes(x = magnitude, y = drug_potentiality)) +
+    
+    ## Background points — colored discretely by band
+    geom_point(aes(color = color_band_num), size = 1.2, alpha = 0.7) +
+    
+    ## Continuous gradient scale renders as a smooth gradient bar in the legend
+    ## but points are snapped to 7 discrete values so they appear as bands
+    scale_color_gradientn(
+      colors   = c("#8B3a00", "#e07b00", "#f5c542", "#9b72b0", "#9b72b0", "#4caf50", "#1a7a1a", "#004d00"),
+      values   = scales::rescale(c(-1, -0.15, -0.10, -0.001, 0.001, 0.90, 0.97, 1)),
+      limits   = c(-1, 1),
+      name     = paste0("Drug Potentiality"),
+      guide    = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
+    ) +
+    
+    ## Reference horizontal lines (percentile thresholds)
+    geom_hline(yintercept = cutoffs["50%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["10%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["5%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["1%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["90%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["95%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["99%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = 0,               linetype = "solid",  color = "black",  linewidth = 0.5) +
+    
+    ## Gene labels — three layers so top10/bottom10 get distinct text colors
+    ## Manual curated genes: boxed label like paper figure
+    geom_label_repel(
+      data           = DP_plot %>% dplyr::filter(label_group == "manual"),
+      aes(label      = label),
+      size           = 3.2,
+      color          = "black",
+      fontface       = "bold",
+      fill           = "white",
+      label.size     = 0.3,
+      label.padding  = unit(0.15, "lines"),
+      label.r        = unit(0.05, "lines"),
+      box.padding    = 0.4,
+      point.padding  = 0.2,
+      max.overlaps   = 30,
+      segment.size   = 0.3,
+      segment.color  = "grey50"
+    ) +
+    
+    ## Top 10 rainforest genes: bold dark green
+    geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#004d00",
+      fontface      = "bold",
+      box.padding   = 0.5,
+      point.padding = 0.3,
+      max.overlaps  = 30,
+      segment.size  = 0.4,
+      segment.color = "#004d00"
+    ) +
+    
+    ## Bottom 10 desert genes: bold dark red
+    geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#8B0000",
+      fontface      = "bold",
+      box.padding   = 0.5,
+      point.padding = 0.3,
+      max.overlaps  = 30,
+      segment.size  = 0.4,
+      segment.color = "#8B0000"
+    ) +
+    
+    ## Axis annotations matching paper style
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["99%"] + 0.03,
+             label = "1st Forest",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["95%"] + 0.03,
+             label = "5th Forest",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["90%"] + 0.03,
+             label = "10th Forest", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] + 0.03,
+             label = "50th Forest", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] - 0.06,
+             label = "50th Desert", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["10%"] - 0.06,
+             label = "10th Desert", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["5%"] - 0.06,
+             label = "5th Desert",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["1%"] - 0.06,
+             label = "1st Desert",  size = 2.5, color = "grey30", hjust = 1) +
+    
+    ## Side label arrows (Drug Rainforest / Drug Desert)
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y =  0.7,
+             label = "Drug\nRainforest", size = 3, color = "#004d00",
+             fontface = "italic", hjust = 0.5) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y = -0.7,
+             label = "Drug\nDesert", size = 3, color = "#8B0000",
+             fontface = "italic", hjust = 0.5) +
+    
+    labs(
+      x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
+      y     = paste0(method, " Quantile \u2212 PCA Quantile\n(Drug Potentiality Score)"),
+      title = paste0("Drug Potentiality Score\n(", file_tag, ")")
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.01, 0.12))) +
+    theme_classic(base_size = 11) +
+    theme(
+      legend.position  = "right",
+      legend.key.height = unit(1.5, "cm"),
+      plot.title       = element_text(size = 10)
+    )
+  
+  print(p_dp)
   
   ggsave(
-    filename = paste0(path.plots, "EMT_Signature_by_Lineage.pdf"),
-    plot = p_lineage,
-    width = 10,
-    height = 8,
-    device = cairo_pdf
+    filename = paste0(path.plots, "DrugPotentiality_", method, "_", file_tag, ".pdf"),
+    plot     = p_dp,
+    width    = 8,
+    height   = 7,
+    units    = "in",
+    device   = cairo_pdf
   )
   
-  print(p_lineage)
+  cat("Plot saved.\n")
+}
+
+### Step 9: Top/Bottom gene tables for inspection
+if (1) {
   
+  cat("\n--- Top 30 Drug RAINFOREST genes (highest potentiality) ---\n")
+  print(DP %>% dplyr::arrange(desc(drug_potentiality)) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+  
+  cat("\n--- Top 30 Drug DESERT genes (lowest potentiality) ---\n")
+  print(DP %>% dplyr::arrange(drug_potentiality) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+  
+  cat("\n--- Top 30 HIGH MAGNITUDE genes near zero potentiality (neutrally targeted) ---\n")
+  print(DP %>%
+          dplyr::filter(abs(drug_potentiality) < 0.05) %>%
+          dplyr::arrange(desc(magnitude)) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+}
+
+### Step 10: Plot fitted log-normal distributions (Figure 4A style)
+if (1) {
+  
+  ## Uses drug_max and PCA_max already in memory from Steps 3-4
+  fit_and_plot <- function(abs_vals, label, dist_color, cdf_color) {
+    
+    x_pos <- abs_vals[abs_vals > 0 & !is.na(abs_vals)]
+    fit   <- fitdistrplus::fitdist(x_pos, "lnorm")
+    ml    <- fit$estimate["meanlog"]
+    sl    <- fit$estimate["sdlog"]
+    
+    x_grid <- seq(0, max(x_pos) * 1.1, length.out = 500)
+    
+    df_dist <- data.frame(x = x_grid, y = dlnorm(x_grid, meanlog = ml, sdlog = sl))
+    df_cdf  <- data.frame(x = x_grid, y = plnorm(x_grid, meanlog = ml, sdlog = sl))
+    
+    ## Example points at 10th and 90th percentile of the loading values
+    ex_low  <- quantile(x_pos, 0.05)
+    ex_neu <- quantile(x_pos, 0.5)
+    ex_high <- quantile(x_pos, 0.95)
+    
+    example_pts <- data.frame(
+      x     = c(ex_low, ex_neu, ex_high),
+      y_cdf = plnorm(c(ex_low, ex_neu, ex_high), meanlog = ml, sdlog = sl),
+      lab   = c(paste0("Low ", label), paste0("Neutral ", label), paste0("High ", label)),
+      col   = c("#8B3a00", "#9b72b0", "#004d00")
+    )
+    
+    p_dist <- ggplot() +
+      geom_histogram(
+        data = data.frame(x = x_pos), aes(x = x, y = after_stat(density)),
+        bins = 60, fill = scales::alpha(dist_color, 0.4), color = scales::alpha(dist_color, 0.6), linewidth = 0.2
+      ) +
+      geom_line(data = df_dist, aes(x = x, y = y), color = dist_color, linewidth = 0.8) +
+      labs(x = "Maximal Absolute Loading", y = "Density",
+           title = paste0("Distribution of\n", label, " Maximal Loading")) +
+      theme_classic(base_size = 10) +
+      theme(plot.title = element_text(face = "italic", size = 9, hjust = 0.5))
+    
+    p_cdf <- ggplot() +
+      geom_line(data = df_cdf, aes(x = x, y = y), color = cdf_color, linewidth = 0.8) +
+      geom_segment(data = example_pts,
+                   aes(x = x, xend = x, y = 0, yend = y_cdf),
+                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+      geom_segment(data = example_pts,
+                   aes(x = 0, xend = x, y = y_cdf, yend = y_cdf),
+                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+      geom_point(data = example_pts, aes(x = x, y = y_cdf), size = 3, color = example_pts$col) +
+      geom_text(data = example_pts, aes(x = x, y = y_cdf, label = lab),
+                hjust = -0.15, size = 3, color = example_pts$col, fontface = "italic") +
+      scale_x_continuous(expand = expansion(mult = c(0.02, 0.25))) +
+      labs(x = "Maximal Absolute Loading", y = "F(x)",
+           title = "Fitted Log Normal\nCumulative Distribution") +
+      theme_classic(base_size = 10) +
+      theme(plot.title = element_text(face = "italic", size = 9, hjust = 0.5))
+    
+    list(p_dist = p_dist, p_cdf = p_cdf)
+  }
+  
+  panels_drug <- fit_and_plot(drug_max$abs_loading_drug, label = method,  dist_color = "#2166ac", cdf_color = "#2166ac")
+  panels_pca  <- fit_and_plot(PCA_max$abs_loading_PCA,   label = "PCA",   dist_color = "#d95f02", cdf_color = "#d95f02")
+  
+  library(patchwork)
+  
+  p_4a <- (panels_drug$p_dist | panels_drug$p_cdf) /
+    (panels_pca$p_dist  | panels_pca$p_cdf) +
+    patchwork::plot_annotation(title = paste0("Log-Normal Fitting: ", method, " vs PCA Maximal Loadings"))
+  
+  print(p_4a)
+  
+  ggsave(
+    filename = paste0(path.plots, "FitDistribution_", method, "_vs_PCA.pdf"),
+    plot     = p_4a, width = 8, height = 6, units = "in", device = cairo_pdf
+  )
+  
+  cat("Distribution plot saved.\n")
+}
+
+
+
+
+##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
+
+### Set OS ###
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
+path.pca     <- paste0(path.wd, "DataSets/PCA/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.dp      <- paste0(path.wd, "DataSets/DrugPotentiality/")
+
+## Method switch: "PLS" or "rCCA"
+method   <- "rCCA"  # "PLS" or "rCCA"
+
+## PLS parameters (used when method == "PLS")
+pls_mode <- "canonical"
+X_source <- "CRISPR"
+Y_source <- "CTRP"
+
+## rCCA parameters (used when method == "rCCA")
+rcca_mode      <- "shrinkage"  # "shrinkage" or "ridge"
+lambda1_manual <- 0.20
+lambda2_manual <- 0.10
+
+X_source <- "CTRP"
+Y_source <- "CRISPR"
+
+## Build file_tag, path, and component column prefix based on method
+if (method == "PLS") {
+  ## PLS: X = CRISPR (genes), Y = CTRP (drugs) -> gene co-signal is in _X.loadings.txt
+  file_tag    <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source)
+  path_drug   <- path.pls
+  gene_side   <- "X"    # which loadings file has genes
+  comp_prefix <- "comp" # PLS columns: comp1, comp2, ...
+} else {
+  ## rCCA: X = CTRP (drugs), Y = CRISPR (genes) -> gene co-signal is in _Y.loadings.txt
+  if (rcca_mode == "shrinkage") {
+    file_tag <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source)
+  } else {
+    file_tag <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
+                       "_lambda2.", format(lambda2_manual, digits = 3),
+                       "_X.", X_source, "_Y.", Y_source)
+  }
+  path_drug   <- path.rcca
+  gene_side   <- "Y"   # rCCA X = CTRP drugs, so genes are on the Y side
+  comp_prefix <- "X"   # rCCA loading columns are always named X1, X2, ...
+}
+
+## Number of components to summarize over (paper uses top 10)
+n_comp <- 10
+
+### Step 1: Load drug-gene co-embedding loadings (PLS-C or rCCA)
+if (1) {
+  
+  drug_loadings_raw <- read.delim(
+    file = paste0(path_drug, file_tag, "_", gene_side, ".loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
+  
+  ## Column names differ: PLS uses comp1/comp2, rCCA uses X1/X2
+  comp_cols_drug <- paste0(comp_prefix, 1:n_comp)
+  comp_cols_drug <- comp_cols_drug[comp_cols_drug %in% names(drug_loadings_raw)]
+  
+  drug_loadings_sub <- drug_loadings_raw %>%
+    dplyr::select(Loading, all_of(comp_cols_drug))
+  
+  cat(method, gene_side, "-loadings (gene side):", nrow(drug_loadings_sub), "genes x", length(comp_cols_drug), "components\n")
+}
+
+### Step 2: Load PCA loadings (gene-only signal)
+if (1) {
+  
+  ## These are the loadings from PCA_from_file() run on CRISPR_common
+  ## File name follows the pattern: <input>_prcomp_loadings.txt
+  PCA_loadings <- read.delim(
+    file = paste0(path.pca, "CRISPR_common_PCA_prcomp_loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
+  
+  ## Keep only PC1:PC{n_comp}
+  comp_cols_pca <- paste0("PC", 1:n_comp)
+  comp_cols_pca <- comp_cols_pca[comp_cols_pca %in% names(PCA_loadings)]
+  
+  PCA_loadings_sub <- PCA_loadings %>%
+    dplyr::select(Loading, all_of(comp_cols_pca))
+  
+  cat("PCA loadings: ", nrow(PCA_loadings_sub), "genes x", length(comp_cols_pca), "components\n")
+}
+
+### Step 3: Summarize — max absolute loading per gene across top 10 components
+if (1) {
+  
+  summarize_max_abs <- function(df, gene_col, comp_cols, value_suffix) {
+    df %>%
+      tidyr::pivot_longer(
+        cols      = all_of(comp_cols),
+        names_to  = "component",
+        values_to = "loading"
+      ) %>%
+      dplyr::mutate(abs_loading = abs(loading)) %>%
+      dplyr::group_by(.data[[gene_col]]) %>%
+      dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+      dplyr::ungroup() %>%
+      dplyr::rename(
+        !!paste0("component_", value_suffix) := component,
+        !!paste0("loading_", value_suffix)    := loading,
+        !!paste0("abs_loading_", value_suffix) := abs_loading
+      )
+  }
+  
+  drug_max <- summarize_max_abs(drug_loadings_sub, "Loading", comp_cols_drug, "drug")
+  PCA_max  <- summarize_max_abs(PCA_loadings_sub,  "Loading", comp_cols_pca,  "PCA")
+  
+  cat("Genes summarized —", method, ":", nrow(drug_max), " PCA:", nrow(PCA_max), "\n")
+}
+
+### Step 4: Fit log-normal distribution and convert to quantiles
+if (1) {
+  
+  ## The paper fits each vector (PLS summarized loadings, PCA summarized loadings)
+  ## separately to a log-normal distribution and uses the fitted CDF to get quantiles.
+  
+  fit_lognormal_quantile <- function(x, label = "") {
+    
+    x_pos <- x[x > 0 & !is.na(x)]
+    
+    ## Fit log-normal (and competitors) to check AIC
+    fit_ln  <- fitdistrplus::fitdist(x_pos, "lnorm")
+    fit_wb  <- fitdistrplus::fitdist(x_pos, "weibull")
+    fit_gm  <- fitdistrplus::fitdist(x_pos, "gamma")
+    
+    aic_table <- data.frame(
+      distribution = c("lognormal", "weibull", "gamma"),
+      AIC          = c(fit_ln$aic, fit_wb$aic, fit_gm$aic)
+    )
+    cat("\nAIC comparison for", label, "loadings:\n")
+    print(aic_table)
+    cat("Best fit:", aic_table$distribution[which.min(aic_table$AIC)], "\n")
+    
+    ## Use log-normal as per the paper regardless (paper states lognormal best)
+    meanlog <- fit_ln$estimate["meanlog"]
+    sdlog   <- fit_ln$estimate["sdlog"]
+    
+    ## Convert each gene's abs loading to a quantile [0,1] via fitted log-normal CDF
+    ## Genes with abs_loading = 0 get quantile = 0
+    q <- plnorm(x, meanlog = meanlog, sdlog = sdlog)
+    q[is.na(x)] <- NA
+    
+    list(
+      quantile = q,
+      fit      = fit_ln,
+      aic_table = aic_table
+    )
+  }
+  
+  drug_fit <- fit_lognormal_quantile(drug_max$abs_loading_drug, label = method)
+  PCA_fit  <- fit_lognormal_quantile(PCA_max$abs_loading_PCA,  label = "PCA")
+  
+  drug_max$quantile_drug <- drug_fit$quantile
+  PCA_max$quantile_PCA   <- PCA_fit$quantile
+}
+
+### Step 5: Merge and compute Drug Potentiality Score
+if (1) {
+  
+  DP <- merge(
+    drug_max %>% dplyr::select(Loading, abs_loading_drug, quantile_drug, component_drug),
+    PCA_max  %>% dplyr::select(Loading, abs_loading_PCA,  quantile_PCA,  component_PCA),
+    by = "Loading"
+  )
+  
+  DP <- DP %>%
+    dplyr::mutate(
+      ## Drug Potentiality Score: drug co-signal quantile minus PCA quantile
+      drug_potentiality = quantile_drug - quantile_PCA,
+      
+      ## Magnitude: Euclidean distance to origin using summarized abs loadings
+      magnitude = sqrt(abs_loading_drug^2 + abs_loading_PCA^2),
+      
+      ## Categorical label
+      category = dplyr::case_when(
+        drug_potentiality >  0.05  ~ "Drug Rainforest",
+        drug_potentiality < -0.05  ~ "Drug Desert",
+        TRUE                       ~ "Neutral"
+      )
+    ) %>%
+    dplyr::arrange(desc(drug_potentiality))
+  
+  cat("\nDrug Potentiality Score summary:\n")
+  print(summary(DP$drug_potentiality))
+  cat("\nCategory counts:\n")
+  print(table(DP$category))
+}
+
+### Step 6: Add gene annotations for labeling
+if (1) {
+  
+  ## Auto: top 10 and bottom 10 by drug potentiality score
+  top10    <- DP %>% dplyr::arrange(desc(drug_potentiality)) %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
+  bottom10 <- DP %>% dplyr::arrange(drug_potentiality)      %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
+  
+  ## Manual curation list (from paper figure + your existing annotation groups)
+  genes_manual <- c(
+    ## Neutral examples (known drug targets at zero line)
+    "BRAF", "EGFR", "PIK3CA", "ERBB2",
+    ## Desert examples
+    "KRAS", "MYC", "MYCN", "PTEN", "TP53",
+    ## Your existing annotation groups
+    "GPX4", "MDM2", "MDM4", "SOX10", "DUSP4",
+    "BCL2", "BCL2L1", "MCL1", "MED12",
+    "SRC", "ABL1", "LCK", "LYN",
+    "MAPK1", "MITF", "SOX9", "PEA15"
+  )
+  
+  all_labels <- unique(c(top10, bottom10, genes_manual))
+  DP$label   <- ifelse(DP$Loading %in% all_labels, DP$Loading, NA_character_)
+  
+  ## Tag label source — drives separate text colors in the plot
+  DP$label_group <- dplyr::case_when(
+    DP$Loading %in% top10    ~ "top10",
+    DP$Loading %in% bottom10 ~ "bottom10",
+    !is.na(DP$label)         ~ "manual",
+    TRUE                     ~ NA_character_
+  )
+}
+
+### Step 7: Save output table
+if (1) {
+  
+  write.table(
+    x         = DP,
+    file      = paste0(path.dp, "DrugPotentiality_", file_tag, ".txt"),
+    sep       = "\t", quote = FALSE, row.names = FALSE
+  )
+  cat("Saved drug potentiality table.\n")
+}
+
+### Step 8: Plot — replicating Figure 4B from the paper
+if (1) {
+  
+  ## Color gradient: Drug Desert (red/orange) → Neutral (white/purple) → Rainforest (green)
+  ## Use a continuous scale keyed to drug_potentiality score
+  
+  ## Percentile cutoffs for band boundaries and dashed lines
+  cutoffs <- quantile(DP$drug_potentiality, probs = c(0.01, 0.05, 0.10, 0.50, 0.90, 0.95, 0.99))
+  cat("\nPercentile cutoffs:\n"); print(round(cutoffs, 4))
+  
+  ## Assign each gene to a discrete color band.
+  ## Everything between 50th desert and 50th forest is one single neutral color.
+  DP <- DP %>%
+    dplyr::mutate(
+      color_band = dplyr::case_when(
+        drug_potentiality >= cutoffs["99%"] ~ "01_forest_1st",
+        drug_potentiality >= cutoffs["95%"] ~ "02_forest_5th",
+        drug_potentiality >= cutoffs["90%"] ~ "03_forest_10th",
+        drug_potentiality >= cutoffs["50%"] ~ "04_neutral",   # 50th forest to top of rainforest bands
+        drug_potentiality >= cutoffs["10%"] ~ "04_neutral",   # 10th desert to 50th forest: neutral
+        drug_potentiality >= cutoffs["5%"]  ~ "05_desert_10th",
+        drug_potentiality >= cutoffs["1%"]  ~ "06_desert_5th",
+        TRUE                                ~ "07_desert_1st"
+      )
+    )
+  
+  ## 7 discrete colors; neutral spans 50th desert to 50th forest (one color)
+  band_colors <- c(
+    "01_forest_1st"  = "#004d00",
+    "02_forest_5th"  = "#1a7a1a",
+    "03_forest_10th" = "#4caf50",
+    "04_neutral"     = "#9b72b0",
+    "05_desert_10th" = "#f5c542",
+    "06_desert_5th"  = "#e07b00",
+    "07_desert_1st"  = "#8B3a00"
+  )
+  
+  ## Map band names to numeric midpoints for gradient legend
+  band_order     <- c("01_forest_1st","02_forest_5th","03_forest_10th",
+                      "04_neutral","05_desert_10th","06_desert_5th","07_desert_1st")
+  band_midpoints <- c(0.995, 0.97, 0.925, 0.0, -0.55, -0.80, -0.995)
+  
+  DP <- DP %>%
+    dplyr::mutate(color_band_num = band_midpoints[match(color_band, band_order)])
+  
+  ## Order so labeled points plot on top
+  DP_plot <- DP %>%
+    dplyr::arrange(!is.na(label))
+  
+  p_dp <- ggplot(DP_plot, aes(x = magnitude, y = drug_potentiality)) +
+    
+    ## Background points — colored discretely by band
+    geom_point(aes(color = color_band_num), size = 1.2, alpha = 0.7) +
+    
+    ## Continuous gradient scale renders as a smooth gradient bar in the legend
+    ## but points are snapped to 7 discrete values so they appear as bands
+    scale_color_gradientn(
+      colors   = c("#8B3a00", "#e07b00", "#f5c542", "#9b72b0", "#9b72b0", "#4caf50", "#1a7a1a", "#004d00"),
+      values   = scales::rescale(c(-1, -0.15, -0.10, -0.001, 0.001, 0.90, 0.97, 1)),
+      limits   = c(-1, 1),
+      name     = paste0("Drug Potentiality\n(", method, " Quant. \u2212 PCA Quant.)"),
+      guide    = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
+    ) +
+    
+    ## Reference horizontal lines (percentile thresholds)
+    geom_hline(yintercept = cutoffs["50%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["10%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["5%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["1%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["90%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["95%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["99%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = 0,               linetype = "solid",  color = "black",  linewidth = 0.5) +
+    
+    ## Gene labels — three layers so top10/bottom10 get distinct text colors
+    ## Manual curated genes: boxed label like paper figure
+    geom_label_repel(
+      data           = DP_plot %>% dplyr::filter(label_group == "manual"),
+      aes(label      = label),
+      size           = 3.2,
+      color          = "black",
+      fontface       = "bold",
+      fill           = "white",
+      label.size     = 0.3,
+      label.padding  = unit(0.15, "lines"),
+      label.r        = unit(0.05, "lines"),
+      box.padding    = 0.4,
+      point.padding  = 0.2,
+      max.overlaps   = 30,
+      segment.size   = 0.3,
+      segment.color  = "grey50"
+    ) +
+    
+    ## Top 10 rainforest genes: bold dark green
+    geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#004d00",
+      fontface      = "bold",
+      box.padding   = 0.5,
+      point.padding = 0.3,
+      max.overlaps  = 30,
+      segment.size  = 0.4,
+      segment.color = "#004d00"
+    ) +
+    
+    ## Bottom 10 desert genes: bold dark red
+    geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#8B0000",
+      fontface      = "bold",
+      box.padding   = 0.5,
+      point.padding = 0.3,
+      max.overlaps  = 30,
+      segment.size  = 0.4,
+      segment.color = "#8B0000"
+    ) +
+    
+    ## Axis annotations matching paper style
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["99%"] + 0.03,
+             label = "1st Forest",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["95%"] + 0.03,
+             label = "5th Forest",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["90%"] + 0.03,
+             label = "10th Forest", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] + 0.03,
+             label = "50th Forest", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] - 0.06,
+             label = "50th Desert", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["10%"] - 0.06,
+             label = "10th Desert", size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["5%"] - 0.06,
+             label = "5th Desert",  size = 2.5, color = "grey30", hjust = 1) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["1%"] - 0.06,
+             label = "1st Desert",  size = 2.5, color = "grey30", hjust = 1) +
+    
+    ## Side label arrows (Drug Rainforest / Drug Desert)
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y =  0.7,
+             label = "Drug\nRainforest", size = 3, color = "#004d00",
+             fontface = "italic", hjust = 0.5) +
+    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y = -0.7,
+             label = "Drug\nDesert", size = 3, color = "#8B0000",
+             fontface = "italic", hjust = 0.5) +
+    
+    labs(
+      x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
+      y     = paste0(method, " Quantile \u2212 PCA Quantile\n(Drug Potentiality Score)"),
+      title = paste0("Drug Potentiality Score\n(", file_tag, ")")
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.01, 0.12))) +
+    theme_classic(base_size = 11) +
+    theme(
+      legend.position  = "right",
+      legend.key.height = unit(1.5, "cm"),
+      plot.title       = element_text(size = 10)
+    )
+  
+  print(p_dp)
+  
+  ggsave(
+    filename = paste0(path.plots, "DrugPotentiality_", method, "_", file_tag, ".pdf"),
+    plot     = p_dp,
+    width    = 8,
+    height   = 7,
+    units    = "in",
+    device   = cairo_pdf
+  )
+  
+  cat("Plot saved.\n")
+}
+
+### Step 9: Top/Bottom gene tables for inspection
+if (1) {
+  
+  cat("\n--- Top 30 Drug RAINFOREST genes (highest potentiality) ---\n")
+  print(DP %>% dplyr::arrange(desc(drug_potentiality)) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+  
+  cat("\n--- Top 30 Drug DESERT genes (lowest potentiality) ---\n")
+  print(DP %>% dplyr::arrange(drug_potentiality) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+  
+  cat("\n--- Top 30 HIGH MAGNITUDE genes near zero potentiality (neutrally targeted) ---\n")
+  print(DP %>%
+          dplyr::filter(abs(drug_potentiality) < 0.05) %>%
+          dplyr::arrange(desc(magnitude)) %>%
+          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
+          head(30))
+}
+
+### Step 10: Figure 4A-style — fitted distributions + comparison scatters (6-panel)
+if (1) {
+  
+  ## Uses drug_max, PCA_max, DP, band_colors, method, path.plots already in memory
+  
+  fit_panels <- function(abs_vals, label, dist_color, cdf_color) {
+    
+    x_pos  <- abs_vals[abs_vals > 0 & !is.na(abs_vals)]
+    fit    <- fitdistrplus::fitdist(x_pos, "lnorm")
+    ml     <- fit$estimate["meanlog"]
+    sl     <- fit$estimate["sdlog"]
+    x_grid <- seq(0, max(x_pos) * 1.1, length.out = 500)
+    
+    df_dist <- data.frame(x = x_grid, y = dlnorm(x_grid, meanlog = ml, sdlog = sl))
+    df_cdf  <- data.frame(x = x_grid, y = plnorm(x_grid, meanlog = ml, sdlog = sl))
+    
+    ex_low  <- quantile(x_pos, 0.01)
+    ex_neut <- quantile(x_pos, 0.50)
+    ex_high <- quantile(x_pos, 0.99)
+    
+    example_pts <- data.frame(
+      x     = c(ex_low, ex_neut, ex_high),
+      y_cdf = plnorm(c(ex_low, ex_neut, ex_high), meanlog = ml, sdlog = sl),
+      lab   = c(paste0("Low ", label), paste0("Neutral ", label), paste0("High ", label)),
+      col   = c("#004d00", "#9b72b0", "#004d00")
+    )
+  
+    p_dist <- ggplot() +
+      geom_histogram(
+        data = data.frame(x = x_pos), aes(x = x, y = after_stat(density)),
+        bins = 60, fill = scales::alpha(dist_color, 0.4),
+        color = scales::alpha(dist_color, 0.6), linewidth = 0.2
+      ) +
+      geom_line(data = df_dist, aes(x = x, y = y), color = dist_color, linewidth = 0.8) +
+      labs(x = "Maximal Absolute Loading", y = "Density",
+           title = paste0("Distribution of
+", label, " Maximal Loading")) +
+      theme_classic(base_size = 9) +
+      theme(plot.title = element_text(face = "italic", size = 8, hjust = 0.5))
+    
+    p_cdf <- ggplot() +
+      geom_line(data = df_cdf, aes(x = x, y = y), color = cdf_color, linewidth = 0.8) +
+      geom_segment(data = example_pts,
+                   aes(x = x, xend = x, y = 0, yend = y_cdf),
+                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+      geom_segment(data = example_pts,
+                   aes(x = 0, xend = x, y = y_cdf, yend = y_cdf),
+                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
+      geom_point(data = example_pts, aes(x = x, y = y_cdf), size = 3, color = example_pts$col) +
+      geom_text(data = example_pts, aes(x = x, y = y_cdf, label = lab),
+                hjust = -0.15, size = 2.8, color = example_pts$col, fontface = "italic") +
+      scale_x_continuous(expand = expansion(mult = c(0.02, 0.25))) +
+      labs(x = "Maximal Absolute Loading", y = "F(x)",
+           title = "Fitted Log Normal
+Cumulative Distribution") +
+      theme_classic(base_size = 9) +
+      theme(plot.title = element_text(face = "italic", size = 8, hjust = 0.5))
+    
+    list(p_dist = p_dist, p_cdf = p_cdf)
+  }
+  
+  panels_drug <- fit_panels(drug_max$abs_loading_drug, label = method,  dist_color = "#2166ac", cdf_color = "#2166ac")
+  panels_pca  <- fit_panels(PCA_max$abs_loading_PCA,   label = "PCA",   dist_color = "#d95f02", cdf_color = "#d95f02")
+  
+  ## Scatter plots
+  p_raw <- ggplot(DP, aes(x = abs_loading_PCA, y = abs_loading_drug, color = color_band)) +
+    geom_point(size = 0.6, alpha = 0.6) +
+    scale_color_manual(values = band_colors, guide = "none") +
+    labs(x = "PCA Maximal Loading", y = paste0(method, " Maximal Loading")) +
+    theme_classic(base_size = 9)
+  
+  p_quant <- ggplot(DP, aes(x = quantile_PCA, y = quantile_drug, color = color_band)) +
+    geom_point(size = 0.6, alpha = 0.6) +
+    scale_color_manual(values = band_colors, guide = "none") +
+    labs(x = "Transformed PCA Maximal Loading", y = paste0("Transformed ", method, " Maximal Loading")) +
+    theme_classic(base_size = 9)
+  
+  library(patchwork)
+  
+  p_all <- (panels_drug$p_dist | panels_drug$p_cdf) /
+    (panels_pca$p_dist  | panels_pca$p_cdf) /
+    (p_raw               | p_quant) +
+    patchwork::plot_annotation(
+      title = paste0("Drug Potentiality Score = (Drug + Gene Co signal) - Gene Signal
+",
+                     method, " vs PCA"),
+      theme = theme(plot.title = element_text(face = "bold", size = 11, hjust = 0.5))
+    )
+  
+  print(p_all)
+  
+  ggsave(
+    filename = paste0(path.plots, "FigureA_", method, "_vs_PCA.pdf"),
+    plot     = p_all,
+    width    = 6.5, height = 9, units = "in", device = cairo_pdf
+  )
+  
+   cat("6-panel figure saved")
 }
