@@ -331,23 +331,31 @@ Y_source <- "CTRP"   # CRISPR or CTRP
 ncomp <- 15
 mode  <- "canonical" # default = regression, symmetric = canonical
 
+## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
+exclude_lineages <- c("Myeloid", "Lymphoid")  # e.g. c("Myeloid", "Lymphoid") or character(0)
+
 #### 1. Execute to prep for PLS
 if(1) {
-
+  
   ## For saving files later
-  file_tag <- paste0("PLS_Mode.", mode, "_X.", X_source, "_Y.", Y_source)
+  excl_tag <- if (length(exclude_lineages) > 0) {
+    paste0("_excl.", paste(exclude_lineages, collapse = "."))
+  } else {
+    ""
+  }
+  file_tag <- paste0("PLS_Mode.", mode, "_X.", X_source, "_Y.", Y_source, excl_tag)
   
   ## Read in data and set row names
   CRISPR <- read.delim(
     file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"),
     sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
-    ) %>%
+  ) %>%
     dplyr::rename_with(~ sub("\\.\\..*", "", .))
   
   CTRP <- read.delim(
     file = paste0(path.ctrp, "ctrpv2.wide_culled80_MFImputed.txt"),
     sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
-    )
+  )
   
   ## Filter for shared cell lines, make matrix (for mixomics), ensure numeric
   if (X_source == "CRISPR") X_data <- CRISPR
@@ -357,6 +365,13 @@ if(1) {
   if (Y_source == "CTRP")   Y_data <- CTRP
   
   ids <- intersect(rownames(X_data), rownames(Y_data))
+  
+  ## Filter out cell lines belonging to excluded lineages
+  if (length(exclude_lineages) > 0) {
+    models_filt <- read.csv(paste0(path.dm, "Model.csv"))
+    keep_ids <- models_filt$ModelID[!(models_filt$OncotreeLineage %in% exclude_lineages)]
+    ids <- intersect(ids, keep_ids)
+  }
   
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
@@ -449,12 +464,12 @@ if(1){
     file = paste0(path.pls, file_tag, "_Y.expvar.txt"),
     sep = "\t", quote = FALSE, row.names = FALSE
   )
-
+  
 }
 
-#### 3. Execute to plot PLS (requires Step 1)
+#### 3. Execute to plot PLS loadings (requires Step 1)
 if(1) {
-
+  
   ## Load saved loading files
   X_loadings <- read.delim(
     file = paste0(path.pls, file_tag, "_X.loadings.txt"),
@@ -464,7 +479,7 @@ if(1) {
     file = paste0(path.pls, file_tag, "_Y.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
-
+  
   ## Bring in raw matrices to compute %NA later
   if (!exists("CRISPR_mat") || !exists("CTRP_mat")) {
     
@@ -543,7 +558,7 @@ if(1) {
     df
   }
   
-  ### Annotation for CRISPR loadings file 
+  ### Annotation for CRISPR loadings file
   annotate_crispr <- function(df, side_label) {
     
     ## Adjusting gene nomenclature
@@ -592,7 +607,6 @@ if(1) {
     df
   }
   
-  
   ## annotate X- and Y- loadings based on actual sources
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_crispr(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_crispr(Y_loadings, "Y")
@@ -603,12 +617,11 @@ if(1) {
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
     
-    # Create alpha flag based on the same thing you use for labeling
     df <- df %>%
       dplyr::mutate(
         label_flag = dplyr::if_else(
           is.na(.data[[color_col]]),
-          "Unlabeled", 
+          "Unlabeled",
           "Labeled"
         )
       )
@@ -623,8 +636,8 @@ if(1) {
       p <- ggplot(
         df,
         aes_string(
-          x = comp1,
-          y = comp2,
+          x     = comp1,
+          y     = comp2,
           color = color_col,
           alpha = "label_flag"
         )
@@ -644,6 +657,7 @@ if(1) {
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         scale_color_manual(values = my_colors, na.value = "grey80") +
+        labs(title = paste0("PLS-C | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
@@ -654,10 +668,6 @@ if(1) {
       )
     }
   }
-  
-  
-  ## If side is CTRP: color by target.category, label by Loading
-  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
@@ -670,6 +680,186 @@ if(1) {
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
+}
+
+#### 4. Execute to plot PLS scores colored by cancer type (requires Step 1 + saved variates)
+if(1) {
+  
+  ## Load model metadata
+  model <- read.csv(paste0(path.dm, "Model.csv"))
+  
+  ## Load saved variates files
+  x.variates.plot <- read.delim(
+    file = paste0(path.pls, file_tag, "_X.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  y.variates.plot <- read.delim(
+    file = paste0(path.pls, file_tag, "_Y.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  
+  ## Annotate with cancer type
+  x.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(x.variates.plot$Score, model$ModelID)]
+  y.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(y.variates.plot$Score, model$ModelID)]
+  
+  ## Get top N lineages by cell line count for coloring
+  top_lineages_n <- 15
+  top_lineages <- names(sort(table(x.variates.plot$OncotreeLineage), decreasing = TRUE))[1:top_lineages_n]
+  
+  x.variates.plot <- x.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  y.variates.plot <- y.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  ## Color palette
+  lineage_colors <- c(
+    RColorBrewer::brewer.pal(8, "Set1"),
+    RColorBrewer::brewer.pal(7, "Set2"),
+    "grey70"  # for "Other"
+  )
+  names(lineage_colors) <- c(top_lineages, "Other")
+  
+  ## Helper: scatter plots of scores
+  plot_scores_side <- function(df, source_label) {
+    
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    if (length(comp_cols) < 2) return(invisible(NULL))
+    
+    for (i in 2:length(comp_cols)) {
+      comp1_col <- "comp1"
+      comp2_col <- paste0("comp", i)
+      
+      p <- ggplot(
+        df,
+        aes_string(
+          x     = comp1_col,
+          y     = comp2_col,
+          color = "lineage_label"
+        )
+      ) +
+        geom_point(size = 1.8, alpha = 0.7) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        scale_color_manual(values = lineage_colors, name = "Lineage") +
+        labs(
+          title = paste0("PLS-C | ", source_label, " scores: ", comp1_col, " vs ", comp2_col),
+          x     = comp1_col,
+          y     = comp2_col
+        ) +
+        theme_bw(base_size = 10) +
+        guides(color = guide_legend(override.aes = list(size = 3, alpha = 1), ncol = 1))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_",
+          comp1_col, "vs", comp2_col, ".pdf"
+        ),
+        plot = p, width = 7, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_side(x.variates.plot, paste0("X.", X_source))
+  plot_scores_side(y.variates.plot, paste0("Y.", Y_source))
+  
+  
+  ## Helper: boxplots of scores per lineage for comps 1-10
+  plot_scores_boxplot <- function(df, source_label) {
+    
+    comp_cols <- grep("^comp([1-9]|10)$", names(df), value = TRUE)
+    
+    df_long <- df %>%
+      dplyr::select(Score, OncotreeLineage, dplyr::all_of(comp_cols)) %>%
+      tidyr::pivot_longer(
+        cols      = dplyr::all_of(comp_cols),
+        names_to  = "Component",
+        values_to = "Score_value"
+      ) %>%
+      dplyr::filter(!is.na(OncotreeLineage)) %>%
+      dplyr::mutate(
+        Component = factor(Component, levels = comp_cols),
+        OncotreeLineage = factor(
+          OncotreeLineage,
+          levels = df %>%
+            dplyr::filter(!is.na(OncotreeLineage)) %>%
+            dplyr::group_by(OncotreeLineage) %>%
+            dplyr::summarise(med = median(comp1, na.rm = TRUE), .groups = "drop") %>%
+            dplyr::arrange(med) %>%
+            dplyr::pull(OncotreeLineage)
+        )
+      )
+    
+    ## Multi-facet overview PDF
+    p <- ggplot(
+      df_long,
+      aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+    ) +
+      geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, size = 0.3) +
+      facet_wrap(~ Component, scales = "free_y", ncol = 2) +
+      scale_fill_manual(
+        values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+          length(levels(df_long$OncotreeLineage))
+        ),
+        guide = "none"
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+      labs(
+        title = paste0("PLS-C | ", source_label, " scores by cancer lineage (comps 1–10)"),
+        x     = NULL,
+        y     = "Score"
+      ) +
+      theme_bw(base_size = 9) +
+      theme(
+        axis.text.x   = element_text(angle = 45, hjust = 1, size = 6),
+        strip.text    = element_text(size = 9, face = "bold"),
+        panel.spacing = unit(0.4, "lines")
+      )
+    
+    ggsave(
+      filename = paste0(
+        path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_comps1to10.pdf"
+      ),
+      plot = p, width = 12, height = 18, units = "in", device = cairo_pdf
+    )
+    
+    ## Individual per-comp PDFs
+    for (comp in comp_cols) {
+      
+      df_comp <- df_long %>% dplyr::filter(Component == comp)
+      
+      p_ind <- ggplot(
+        df_comp,
+        aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+      ) +
+        geom_boxplot(outlier.size = 0.6, outlier.alpha = 0.5, size = 0.3) +
+        scale_fill_manual(
+          values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+            length(levels(df_comp$OncotreeLineage))
+          ),
+          guide = "none"
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+        labs(
+          title = paste0("PLS-C | ", source_label, " scores — ", comp, " by cancer lineage"),
+          x     = NULL,
+          y     = "Score"
+        ) +
+        theme_bw(base_size = 10) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_", comp, ".pdf"
+        ),
+        plot = p_ind, width = 10, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_boxplot(x.variates.plot, paste0("X.", X_source))
+  plot_scores_boxplot(y.variates.plot, paste0("Y.", Y_source))
+  
 }
 
 ##### PLS: RNAi & CTRP #####
@@ -692,17 +882,25 @@ path.plots   <- paste0(path.wd, "Plots/")
 path.general <- paste0(path.wd, "DataSets/General/")
 
 ## Set PLS parameters
-X_source <- "CTRP"  # RNAi or CTRP
-Y_source <- "RNAi"  # RNAi or CTRP
+X_source <- "RNAi"  # RNAi or CTRP
+Y_source <- "CTRP"  # RNAi or CTRP
 
 ncomp <- 15
-mode  <- "regression" # default = regression, symmetric = canonical
+mode  <- "canonical" # default = regression, symmetric = canonical
+
+## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
+exclude_lineages <- character(0) # e.g. c("Myeloid", "Lymphoid") or character(0)
 
 #### 1. Execute to prep for PLS
 if(1) {
   
   ## For saving files later
-  file_tag <- paste0("PLS_Mode.", mode, "_X.", X_source, "_Y.", Y_source)
+  excl_tag <- if (length(exclude_lineages) > 0) {
+    paste0("_excl.", paste(exclude_lineages, collapse = "."))
+  } else {
+    ""
+  }
+  file_tag <- paste0("PLS_Mode.", mode, "_X.", X_source, "_Y.", Y_source, excl_tag)
   
   ## Read in data
   RNAi <- read.delim(
@@ -715,8 +913,8 @@ if(1) {
   )
   
   ## Convert RNAi sample nomenclature (CCLEName -> ModelID via Model.csv)
-  models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F) %>%
-    dplyr::select(ModelID, CCLEName)
+  models <- read.delim(paste0(path.dm, "Model.csv"), sep = ",", stringsAsFactors = F, check.names = F) %>%
+    dplyr::select(ModelID, CCLEName, OncotreeLineage)
   
   RNAi_t <- RNAi %>%
     t() %>%
@@ -725,10 +923,10 @@ if(1) {
     dplyr::rename_with(~ sub("\\.\\..*", "", .))
   
   RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
-    dplyr::select(-CCLEName) %>%
+    dplyr::select(-CCLEName, -OncotreeLineage) %>%
     tibble::column_to_rownames(var = "ModelID")
   
-  ## filter for shared cell lines, make matrix (for mixomics), ensure numeric
+  ## Filter for shared cell lines, make matrix (for mixomics), ensure numeric
   if (X_source == "RNAi") X_data <- RNAi_t_ModelID
   if (X_source == "CTRP")   X_data <- CTRP
   
@@ -736,6 +934,12 @@ if(1) {
   if (Y_source == "CTRP")   Y_data <- CTRP
   
   ids <- intersect(rownames(X_data), rownames(Y_data))
+  
+  ## Filter out cell lines belonging to excluded lineages
+  if (length(exclude_lineages) > 0) {
+    keep_ids <- models$ModelID[!(models$OncotreeLineage %in% exclude_lineages)]
+    ids <- intersect(ids, keep_ids)
+  }
   
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
@@ -746,7 +950,7 @@ if(1) {
   X <- as.matrix(X)
   Y <- as.matrix(Y)
   
-  }
+}
 
 #### 2. Execute to run PLS and save output files (requires Step 1)
 if(1){
@@ -832,7 +1036,7 @@ if(1){
   
 }
 
-#### 3. Execute to plot PLS (requires Step 1)
+#### 3. Execute to plot PLS loadings (requires Step 1)
 if(1) {
   
   ## Load saved loading files
@@ -856,7 +1060,7 @@ if(1) {
     
     CTRP_mat <- read.delim(
       file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
     
   }
@@ -981,6 +1185,7 @@ if(1) {
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
+    
     comp_cols <- grep("comp", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
@@ -991,20 +1196,20 @@ if(1) {
       
       p <- ggplot(
         df,
-        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
+        aes_string(x = comp1, y = comp2, color = color_col)
       ) +
         geom_point(size = 2.5) +
         
-        # Only label rows where color_col is NOT NA
         geom_text_repel(
           data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
-          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          aes_string(label = label_col),
           size = 2
         ) +
         
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         scale_color_manual(values = my_colors, na.value = "grey80") +
+        labs(title = paste0("PLS-R | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
@@ -1015,9 +1220,6 @@ if(1) {
       )
     }
   }
-  
-  ## If side is CTRP: color by target.category, label by Loading
-  ## If side is CRISPR: color by group, label by Loading
   
   if (X_source == "CTRP") {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
@@ -1030,6 +1232,186 @@ if(1) {
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
+}
+
+#### 4. Execute to plot PLS scores colored by cancer type (requires Step 1 + saved variates)
+if(1) {
+  
+  ## Load model metadata
+  model <- read.csv(paste0(path.dm, "Model.csv"))
+  
+  ## Load saved variates files
+  x.variates.plot <- read.delim(
+    file = paste0(path.pls, file_tag, "_X.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  y.variates.plot <- read.delim(
+    file = paste0(path.pls, file_tag, "_Y.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  
+  ## Annotate with cancer type
+  x.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(x.variates.plot$Score, model$ModelID)]
+  y.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(y.variates.plot$Score, model$ModelID)]
+  
+  ## Get top N lineages by cell line count for coloring
+  top_lineages_n <- 15
+  top_lineages <- names(sort(table(x.variates.plot$OncotreeLineage), decreasing = TRUE))[1:top_lineages_n]
+  
+  x.variates.plot <- x.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  y.variates.plot <- y.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  ## Color palette
+  lineage_colors <- c(
+    RColorBrewer::brewer.pal(8, "Set1"),
+    RColorBrewer::brewer.pal(7, "Set2"),
+    "grey70"  # for "Other"
+  )
+  names(lineage_colors) <- c(top_lineages, "Other")
+  
+  ## Helper: scatter plots of scores
+  plot_scores_side <- function(df, source_label) {
+    
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
+    if (length(comp_cols) < 2) return(invisible(NULL))
+    
+    for (i in 2:length(comp_cols)) {
+      comp1_col <- "comp1"
+      comp2_col <- paste0("comp", i)
+      
+      p <- ggplot(
+        df,
+        aes_string(
+          x     = comp1_col,
+          y     = comp2_col,
+          color = "lineage_label"
+        )
+      ) +
+        geom_point(size = 1.8, alpha = 0.7) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        scale_color_manual(values = lineage_colors, name = "Lineage") +
+        labs(
+          title = paste0("PLS-R | ", source_label, " scores: ", comp1_col, " vs ", comp2_col),
+          x     = comp1_col,
+          y     = comp2_col
+        ) +
+        theme_bw(base_size = 10) +
+        guides(color = guide_legend(override.aes = list(size = 3, alpha = 1), ncol = 1))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_",
+          comp1_col, "vs", comp2_col, ".pdf"
+        ),
+        plot = p, width = 7, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_side(x.variates.plot, paste0("X.", X_source))
+  plot_scores_side(y.variates.plot, paste0("Y.", Y_source))
+  
+  
+  ## Helper: boxplots of scores per lineage for comps 1-10
+  plot_scores_boxplot <- function(df, source_label) {
+    
+    comp_cols <- grep("^comp([1-9]|10)$", names(df), value = TRUE)
+    
+    df_long <- df %>%
+      dplyr::select(Score, OncotreeLineage, dplyr::all_of(comp_cols)) %>%
+      tidyr::pivot_longer(
+        cols      = dplyr::all_of(comp_cols),
+        names_to  = "Component",
+        values_to = "Score_value"
+      ) %>%
+      dplyr::filter(!is.na(OncotreeLineage)) %>%
+      dplyr::mutate(
+        Component = factor(Component, levels = comp_cols),
+        OncotreeLineage = factor(
+          OncotreeLineage,
+          levels = df %>%
+            dplyr::filter(!is.na(OncotreeLineage)) %>%
+            dplyr::group_by(OncotreeLineage) %>%
+            dplyr::summarise(med = median(comp1, na.rm = TRUE), .groups = "drop") %>%
+            dplyr::arrange(med) %>%
+            dplyr::pull(OncotreeLineage)
+        )
+      )
+    
+    ## Multi-facet overview PDF
+    p <- ggplot(
+      df_long,
+      aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+    ) +
+      geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, size = 0.3) +
+      facet_wrap(~ Component, scales = "free_y", ncol = 2) +
+      scale_fill_manual(
+        values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+          length(levels(df_long$OncotreeLineage))
+        ),
+        guide = "none"
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+      labs(
+        title = paste0("PLS-R | ", source_label, " scores by cancer lineage (comps 1–10)"),
+        x     = NULL,
+        y     = "Score"
+      ) +
+      theme_bw(base_size = 9) +
+      theme(
+        axis.text.x   = element_text(angle = 45, hjust = 1, size = 6),
+        strip.text    = element_text(size = 9, face = "bold"),
+        panel.spacing = unit(0.4, "lines")
+      )
+    
+    ggsave(
+      filename = paste0(
+        path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_comps1to10.pdf"
+      ),
+      plot = p, width = 12, height = 18, units = "in", device = cairo_pdf
+    )
+    
+    ## Individual per-comp PDFs
+    for (comp in comp_cols) {
+      
+      df_comp <- df_long %>% dplyr::filter(Component == comp)
+      
+      p_ind <- ggplot(
+        df_comp,
+        aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+      ) +
+        geom_boxplot(outlier.size = 0.6, outlier.alpha = 0.5, size = 0.3) +
+        scale_fill_manual(
+          values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+            length(levels(df_comp$OncotreeLineage))
+          ),
+          guide = "none"
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+        labs(
+          title = paste0("PLS-R | ", source_label, " scores — ", comp, " by cancer lineage"),
+          x     = NULL,
+          y     = "Score"
+        ) +
+        theme_bw(base_size = 10) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_", comp, ".pdf"
+        ),
+        plot = p_ind, width = 10, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_boxplot(x.variates.plot, paste0("X.", X_source))
+  plot_scores_boxplot(y.variates.plot, paste0("Y.", Y_source))
+  
 }
 
 ##### rCCA: CRISPR & CTRP #####
@@ -1064,6 +1446,9 @@ tune_lambda    <- FALSE   # set TRUE to run automatic tuning
 lambda1_manual <- 0.20    # default penalty on X (CRISPR side if X_source == "CRISPR")
 lambda2_manual <- 0.10    # default penalty on Y
 
+## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
+exclude_lineages <- c("Myeloid", "Lymphoid")  # e.g. c("Myeloid", "Lymphoid") or character(0)
+
 #### 1. Execute to prep for RCCA
 if (1) {
   
@@ -1088,6 +1473,13 @@ if (1) {
   
   ids <- intersect(rownames(X_data), rownames(Y_data))
   
+  ## Filter out cell lines belonging to excluded lineages
+  if (length(exclude_lineages) > 0) {
+    models_filt <- read.csv(paste0(path.dm, "Model.csv"))
+    keep_ids <- models_filt$ModelID[!(models_filt$OncotreeLineage %in% exclude_lineages)]
+    ids <- intersect(ids, keep_ids)
+  }
+  
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
   
@@ -1102,9 +1494,9 @@ if (1) {
     
     if (tune_lambda) {
       
-      grid1      <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
-      grid2      <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
-      ncomp_tune <- min(5L, ncomp)       # tune only first few components
+      grid1      <- c(0.10, 0.20, 0.30)
+      grid2      <- c(0.05, 0.10, 0.20)
+      ncomp_tune <- min(5L, ncomp)
       
       set.seed(999)
       tune_time <- system.time({
@@ -1127,25 +1519,32 @@ if (1) {
       
     } else {
       
-      ## Use predefined defaults
       lambda1 <- lambda1_manual
       lambda2 <- lambda2_manual
     }
     
-    ## Common file tag for ridge mode
+    excl_tag <- if (length(exclude_lineages) > 0) {
+      paste0("_excl.", paste(exclude_lineages, collapse = "."))
+    } else {
+      ""
+    }
     file_tag <- paste0(
       "RCCA_ridge",
       "_lambda1.", format(lambda1, digits = 3),
       "_lambda2.", format(lambda2, digits = 3),
-      "_X.", X_source, "_Y.", Y_source
+      "_X.", X_source, "_Y.", Y_source, excl_tag
     )
     
   } else if (mode_rcca == "shrinkage") {
     
-    ## Shrinkage mode: no lambda parameters
+    excl_tag <- if (length(exclude_lineages) > 0) {
+      paste0("_excl.", paste(exclude_lineages, collapse = "."))
+    } else {
+      ""
+    }
     file_tag <- paste0(
       "RCCA_shrinkage",
-      "_X.", X_source, "_Y.", Y_source
+      "_X.", X_source, "_Y.", Y_source, excl_tag
     )
     
   }
@@ -1154,8 +1553,7 @@ if (1) {
 
 #### 2. Execute to run RCCA and save output files (requires Step 1)
 if (1) {
-
-  ## Run RCCA with mode-specific call
+  
   if (mode_rcca == "ridge") {
     
     message("Running rCCA in ridge mode with lambda1 = ", lambda1,
@@ -1207,13 +1605,11 @@ if (1) {
     suffixes = c(paste0(".", X_source), paste0(".", Y_source))
   )
   
-  ## Canonical correlations data.frame
   cancor.df <- data.frame(
-    comp                   = seq_along(rcca_fit$cor),
-    canonical_correlation  = rcca_fit$cor
+    comp                  = seq_along(rcca_fit$cor),
+    canonical_correlation = rcca_fit$cor
   )
   
-  ## Save files
   if (!dir.exists(path.rcca)) dir.create(path.rcca, recursive = TRUE)
   
   write.table(
@@ -1253,7 +1649,7 @@ if (1) {
   )
 }
 
-#### 3. Execute to plot RCCA (requires Step 1)
+#### 3. Execute to plot rCCA loadings (requires Step 1)
 if(1) {
   
   ## Load saved loading files
@@ -1282,7 +1678,7 @@ if(1) {
     
   }
   
-  ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
+  ## Helper function for NA-safe pattern detection
   detect <- function(x, pattern) {
     stringr::str_detect(ifelse(is.na(x), "", x), stringr::regex(pattern, ignore_case = TRUE))
   }
@@ -1295,11 +1691,9 @@ if(1) {
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
     
-    ## Map compound name -> target info
     lk <- match(df$Loading, ctrp.inform$cpd_name)
     df$drug.target <- ctrp.inform$target_or_activity_of_compound[lk]
     
-    ## Groupings
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
@@ -1312,16 +1706,15 @@ if(1) {
           detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
           TRUE ~ NA_character_
         ),
-        group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-        group.na = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5    = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
+        group.na      = dplyr::if_else(is.na(group), 1L, 0L),
         group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        label.not.na  = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
-        mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
+        mix.flag      = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
-    ## Target-category bucketing
     df <- df %>%
       dplyr::mutate(target.category = NA_character_) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA damage"), "DNA.damage", target.category)) %>%
@@ -1335,7 +1728,6 @@ if(1) {
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "dihydrofolate reductase|\\bDHFR\\b"), "DHFR", target.category)) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "BCL2"), "BCL2.", target.category))
     
-    ## %NA per compound using non-imputed CTRP matrix
     percent.nas <- as.data.frame(colMeans(is.na(CTRP_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1344,10 +1736,9 @@ if(1) {
     df
   }
   
-  ### Annotation for CRISPR loadings file 
+  ### Annotation for CRISPR loadings file
   annotate_crispr <- function(df, side_label) {
     
-    ## Adjusting gene nomenclature
     gene.info.all <- read.delim(
       file = paste0(path.general, "Homo_sapiens.gene_info.20251028"),
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
@@ -1359,7 +1750,6 @@ if(1) {
     
     df <- merge(df, gene.info.abr, by.x = "Loading", by.y = "Symbol", all.x = TRUE)
     
-    ## Groupings
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
@@ -1376,15 +1766,14 @@ if(1) {
           stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
           TRUE ~ NA_character_
         ),
-        group.atp5     = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
-        group.na       = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na  = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na   = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        group.atp5        = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
+        group.na          = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5.na     = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na      = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_)
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
-    ## %NA using CRISPR matrix
     percent.nas <- as.data.frame(colMeans(is.na(CRISPR_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1393,17 +1782,17 @@ if(1) {
     df
   }
   
-  ## annotate X- and Y- loadings based on actual sources
+  ## Annotate X- and Y- loadings based on actual sources
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_crispr(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_crispr(Y_loadings, "Y")
   
-  ## Plotting colors (always plot both sides)
+  ## Plotting colors
   my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
-  
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("X", names(df), value = TRUE)
+    
+    comp_cols <- grep("^X\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
@@ -1413,20 +1802,20 @@ if(1) {
       
       p <- ggplot(
         df,
-        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
+        aes_string(x = comp1, y = comp2, color = color_col)
       ) +
         geom_point(size = 2.5) +
         
-        # Only label rows where color_col is NOT NA
         geom_text_repel(
           data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
-          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          aes_string(label = label_col),
           size = 2
         ) +
         
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         scale_color_manual(values = my_colors, na.value = "grey80") +
+        labs(title = paste0("rCCA | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
@@ -1438,7 +1827,6 @@ if(1) {
     }
   }
   
-  ## Color by group, label by Loading
   if (X_source == "CTRP") {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
   } else {
@@ -1450,6 +1838,186 @@ if(1) {
   } else {
     plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
   }
+}
+
+#### 4. Execute to plot rCCA scores colored by cancer type (requires Step 1 + saved variates)
+if(1) {
+  
+  ## Load model metadata
+  model <- read.csv(paste0(path.dm, "Model.csv"))
+  
+  ## Load saved variates files
+  x.variates.plot <- read.delim(
+    file = paste0(path.rcca, file_tag, "_X.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  y.variates.plot <- read.delim(
+    file = paste0(path.rcca, file_tag, "_Y.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  
+  ## Annotate with cancer type
+  x.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(x.variates.plot$Score, model$ModelID)]
+  y.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(y.variates.plot$Score, model$ModelID)]
+  
+  ## Get top N lineages by cell line count for coloring
+  top_lineages_n <- 15
+  top_lineages <- names(sort(table(x.variates.plot$OncotreeLineage), decreasing = TRUE))[1:top_lineages_n]
+  
+  x.variates.plot <- x.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  y.variates.plot <- y.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  ## Color palette
+  lineage_colors <- c(
+    RColorBrewer::brewer.pal(8, "Set1"),
+    RColorBrewer::brewer.pal(7, "Set2"),
+    "grey70"  # for "Other"
+  )
+  names(lineage_colors) <- c(top_lineages, "Other")
+  
+  ## Helper: scatter plots of scores
+  plot_scores_side <- function(df, source_label) {
+    
+    comp_cols <- grep("^X\\d+$", names(df), value = TRUE)
+    if (length(comp_cols) < 2) return(invisible(NULL))
+    
+    for (i in 2:length(comp_cols)) {
+      comp1_col <- "X1"
+      comp2_col <- paste0("X", i)
+      
+      p <- ggplot(
+        df,
+        aes_string(
+          x     = comp1_col,
+          y     = comp2_col,
+          color = "lineage_label"
+        )
+      ) +
+        geom_point(size = 1.8, alpha = 0.7) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        scale_color_manual(values = lineage_colors, name = "Lineage") +
+        labs(
+          title = paste0("rCCA | ", source_label, " scores: ", comp1_col, " vs ", comp2_col),
+          x     = comp1_col,
+          y     = comp2_col
+        ) +
+        theme_bw(base_size = 10) +
+        guides(color = guide_legend(override.aes = list(size = 3, alpha = 1), ncol = 1))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_",
+          comp1_col, "vs", comp2_col, ".pdf"
+        ),
+        plot = p, width = 7, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_side(x.variates.plot, paste0("X.", X_source))
+  plot_scores_side(y.variates.plot, paste0("Y.", Y_source))
+  
+  
+  ## Helper: boxplots of scores per lineage for comps 1-10
+  plot_scores_boxplot <- function(df, source_label) {
+    
+    comp_cols <- grep("^X([1-9]|10)$", names(df), value = TRUE)
+    
+    df_long <- df %>%
+      dplyr::select(Score, OncotreeLineage, dplyr::all_of(comp_cols)) %>%
+      tidyr::pivot_longer(
+        cols      = dplyr::all_of(comp_cols),
+        names_to  = "Component",
+        values_to = "Score_value"
+      ) %>%
+      dplyr::filter(!is.na(OncotreeLineage)) %>%
+      dplyr::mutate(
+        Component = factor(Component, levels = comp_cols),
+        OncotreeLineage = factor(
+          OncotreeLineage,
+          levels = df %>%
+            dplyr::filter(!is.na(OncotreeLineage)) %>%
+            dplyr::group_by(OncotreeLineage) %>%
+            dplyr::summarise(med = median(X1, na.rm = TRUE), .groups = "drop") %>%
+            dplyr::arrange(med) %>%
+            dplyr::pull(OncotreeLineage)
+        )
+      )
+    
+    ## Multi-facet overview PDF
+    p <- ggplot(
+      df_long,
+      aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+    ) +
+      geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, size = 0.3) +
+      facet_wrap(~ Component, scales = "free_y", ncol = 2) +
+      scale_fill_manual(
+        values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+          length(levels(df_long$OncotreeLineage))
+        ),
+        guide = "none"
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+      labs(
+        title = paste0("rCCA | ", source_label, " scores by cancer lineage (comps 1–10)"),
+        x     = NULL,
+        y     = "Score"
+      ) +
+      theme_bw(base_size = 9) +
+      theme(
+        axis.text.x   = element_text(angle = 45, hjust = 1, size = 6),
+        strip.text    = element_text(size = 9, face = "bold"),
+        panel.spacing = unit(0.4, "lines")
+      )
+    
+    ggsave(
+      filename = paste0(
+        path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_comps1to10.pdf"
+      ),
+      plot = p, width = 12, height = 18, units = "in", device = cairo_pdf
+    )
+    
+    ## Individual per-comp PDFs
+    for (comp in comp_cols) {
+      
+      df_comp <- df_long %>% dplyr::filter(Component == comp)
+      
+      p_ind <- ggplot(
+        df_comp,
+        aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+      ) +
+        geom_boxplot(outlier.size = 0.6, outlier.alpha = 0.5, size = 0.3) +
+        scale_fill_manual(
+          values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+            length(levels(df_comp$OncotreeLineage))
+          ),
+          guide = "none"
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+        labs(
+          title = paste0("rCCA | ", source_label, " scores — ", comp, " by cancer lineage"),
+          x     = NULL,
+          y     = "Score"
+        ) +
+        theme_bw(base_size = 10) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_", comp, ".pdf"
+        ),
+        plot = p_ind, width = 10, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_boxplot(x.variates.plot, paste0("X.", X_source))
+  plot_scores_boxplot(y.variates.plot, paste0("Y.", Y_source))
+  
 }
 
 ##### rCCA: RNAi & CTRP #####
@@ -1478,11 +2046,14 @@ Y_source <- "CTRP"   # "RNAi" or "CTRP"
 ncomp <- 15
 
 ## Regularization controls
-mode_rcca      <- "ridge" # ridge (default) requires parameters or tuning, shrinkage
+mode_rcca      <- "shrinkage" # ridge (default) requires parameters or tuning, shrinkage
 
 tune_lambda    <- FALSE   # set TRUE to run automatic tuning
 lambda1_manual <- 0.20    # penalty on X (RNAi side if X_source == "RNAi")
 lambda2_manual <- 0.10    # penalty on Y
+
+## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
+exclude_lineages <- character(0)  # e.g. c("Myeloid", "Lymphoid") or character(0)
 
 #### 1. Execute to prep for RCCA
 if (1) {
@@ -1500,10 +2071,10 @@ if (1) {
   
   ## Convert RNAi sample nomenclature (CCLEName -> ModelID via Model.csv)
   models <- read.delim(
-    file = paste0(path.dm,"Model.csv"),
+    file = paste0(path.dm, "Model.csv"),
     sep = ",", stringsAsFactors = FALSE, check.names = FALSE
   ) %>%
-    dplyr::select(ModelID, CCLEName)
+    dplyr::select(ModelID, CCLEName, OncotreeLineage)
   
   RNAi_t <- RNAi %>%
     t() %>%
@@ -1511,7 +2082,7 @@ if (1) {
     tibble::rownames_to_column(var = "CCLEName")
   
   RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
-    dplyr::select(-CCLEName) %>%
+    dplyr::select(-CCLEName, -OncotreeLineage) %>%
     tibble::column_to_rownames(var = "ModelID")
   
   ## Filter for shared cell lines, make matrix (for mixOmics), ensure numeric
@@ -1522,6 +2093,12 @@ if (1) {
   if (Y_source == "CTRP") Y_data <- CTRP
   
   ids <- intersect(rownames(X_data), rownames(Y_data))
+  
+  ## Filter out cell lines belonging to excluded lineages
+  if (length(exclude_lineages) > 0) {
+    keep_ids <- models$ModelID[!(models$OncotreeLineage %in% exclude_lineages)]
+    ids <- intersect(ids, keep_ids)
+  }
   
   X <- X_data[ids, , drop = FALSE]
   Y <- Y_data[ids, , drop = FALSE]
@@ -1536,9 +2113,9 @@ if (1) {
     
     if (tune_lambda) {
       
-      grid1      <- c(0.10, 0.20, 0.30)  # candidate lambdas for X
-      grid2      <- c(0.05, 0.10, 0.20)  # candidate lambdas for Y
-      ncomp_tune <- min(5L, ncomp)       # tune only first few components
+      grid1      <- c(0.10, 0.20, 0.30)
+      grid2      <- c(0.05, 0.10, 0.20)
+      ncomp_tune <- min(5L, ncomp)
       
       set.seed(999)
       tune_time <- system.time({
@@ -1561,25 +2138,32 @@ if (1) {
       
     } else {
       
-      ## Use predefined defaults
       lambda1 <- lambda1_manual
       lambda2 <- lambda2_manual
     }
     
-    ## Common file tag for ridge mode
+    excl_tag <- if (length(exclude_lineages) > 0) {
+      paste0("_excl.", paste(exclude_lineages, collapse = "."))
+    } else {
+      ""
+    }
     file_tag <- paste0(
       "RCCA_ridge",
       "_lambda1.", format(lambda1, digits = 3),
       "_lambda2.", format(lambda2, digits = 3),
-      "_X.", X_source, "_Y.", Y_source
+      "_X.", X_source, "_Y.", Y_source, excl_tag
     )
     
   } else if (mode_rcca == "shrinkage") {
     
-    ## Shrinkage mode: no lambda parameters
+    excl_tag <- if (length(exclude_lineages) > 0) {
+      paste0("_excl.", paste(exclude_lineages, collapse = "."))
+    } else {
+      ""
+    }
     file_tag <- paste0(
       "RCCA_shrinkage",
-      "_X.", X_source, "_Y.", Y_source
+      "_X.", X_source, "_Y.", Y_source, excl_tag
     )
     
   }
@@ -1620,7 +2204,7 @@ if (1) {
   
   ## Canonical correlations per component (full spectrum; first ncomp used)
   print(rcca_fit$cor[1:ncomp])
-
+  
   ## Extract from rcca_fit object
   x.variates <- data.frame(rcca_fit$variates$X) %>%
     tibble::rownames_to_column(var = "Score")
@@ -1639,13 +2223,11 @@ if (1) {
     suffixes = c(paste0(".", X_source), paste0(".", Y_source))
   )
   
-  ## Canonical correlations data.frame
   cancor.df <- data.frame(
-    comp                   = seq_along(rcca_fit$cor),
-    canonical_correlation  = rcca_fit$cor
+    comp                  = seq_along(rcca_fit$cor),
+    canonical_correlation = rcca_fit$cor
   )
   
-  ## Save files
   if (!dir.exists(path.rcca)) dir.create(path.rcca, recursive = TRUE)
   
   write.table(
@@ -1685,7 +2267,7 @@ if (1) {
   )
 }
 
-#### 3. Execute to plot RCCA (requires Step 2)
+#### 3. Execute to plot rCCA loadings (requires Step 1)
 if (1) {
   
   ## Load saved loading files
@@ -1697,7 +2279,7 @@ if (1) {
     file = paste0(path.rcca, file_tag, "_Y.loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   )
- 
+  
   ## Bring in raw matrices to compute %NA later
   if (!exists("RNAi_mat") || !exists("CTRP_mat")) {
     
@@ -1709,12 +2291,12 @@ if (1) {
     
     CTRP_mat <- read.delim(
       file = paste0(path.ctrp, "ctrpv2.wide.txt"),
-      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE #, row.names = 1
+      sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
     
   }
   
-  ## Helper function for NA-safe pattern detection (useful when labeling for plotting)
+  ## Helper function for NA-safe pattern detection
   detect <- function(x, pattern) {
     stringr::str_detect(ifelse(is.na(x), "", x), stringr::regex(pattern, ignore_case = TRUE))
   }
@@ -1727,11 +2309,9 @@ if (1) {
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
     
-    ## Map compound name -> target info
     lk <- match(df$Loading, ctrp.inform$cpd_name)
     df$drug.target <- ctrp.inform$target_or_activity_of_compound[lk]
     
-    ## Groupings
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
@@ -1744,16 +2324,15 @@ if (1) {
           detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
           TRUE ~ NA_character_
         ),
-        group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-        group.na = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5    = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
+        group.na      = dplyr::if_else(is.na(group), 1L, 0L),
         group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        label.not.na  = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
-        mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
+        mix.flag      = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
-    ## Target-category bucketing
     df <- df %>%
       dplyr::mutate(target.category = NA_character_) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA damage"), "DNA.damage", target.category)) %>%
@@ -1767,7 +2346,6 @@ if (1) {
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "dihydrofolate reductase|\\bDHFR\\b"), "DHFR", target.category)) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "BCL2"), "BCL2.", target.category))
     
-    ## %NA per compound using non-imputed CTRP matrix
     percent.nas <- as.data.frame(colMeans(is.na(CTRP_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1776,7 +2354,7 @@ if (1) {
     df
   }
   
-  ### Annotation for a RNAi loadings frame (gene metadata buckets)
+  ### Annotation for RNAi loadings file
   annotate_rnai <- function(df, side_label) {
     
     gene.info.all <- read.delim(
@@ -1791,7 +2369,6 @@ if (1) {
     
     df <- merge(df, gene.info.abr, by.x = "Loading", by.y = "Symbol", all.x = TRUE)
     
-    ## Groupings
     df <- df %>%
       dplyr::mutate(
         group = dplyr::case_when(
@@ -1808,15 +2385,14 @@ if (1) {
           stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
           TRUE ~ NA_character_
         ),
-        group.atp5       = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
-        group.na         = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na    = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na     = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        group.atp5        = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
+        group.na          = dplyr::if_else(is.na(group), 1L, 0L),
+        group.atp5.na     = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na      = dplyr::if_else(!is.na(group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_)
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
-    ## %NA using RNAi matrix
     percent.nas <- as.data.frame(colMeans(is.na(RNAi_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1825,16 +2401,17 @@ if (1) {
     df
   }
   
-  ## annotate X- and Y- loadings based on actual sources
+  ## Annotate X- and Y- loadings based on actual sources
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_rnai(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_rnai(Y_loadings, "Y")
   
-  ## Plotting colors (always plot both sides)
+  ## Plotting colors
   my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
                  "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
-    comp_cols <- grep("X", names(df), value = TRUE)
+    
+    comp_cols <- grep("^X\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
@@ -1844,20 +2421,20 @@ if (1) {
       
       p <- ggplot(
         df,
-        aes_string(x = comp1, y = comp2, color = color_col)  # <- no label here
+        aes_string(x = comp1, y = comp2, color = color_col)
       ) +
         geom_point(size = 2.5) +
         
-        # Only label rows where color_col is NOT NA
         geom_text_repel(
           data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
-          aes_string(label = label_col),  # inherits x, y, color from main ggplot
+          aes_string(label = label_col),
           size = 2
         ) +
         
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         scale_color_manual(values = my_colors, na.value = "grey80") +
+        labs(title = paste0("rCCA | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
@@ -1868,8 +2445,6 @@ if (1) {
       )
     }
   }
-  
-  ## Color by group, label by Loading
   
   if (X_source == "CTRP") {
     plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
@@ -1884,7 +2459,187 @@ if (1) {
   }
 }
 
-##### Max loading: Scatter & GSEA #####
+#### 4. Execute to plot rCCA scores colored by cancer type (requires Step 1 + saved variates)
+if(1) {
+  
+  ## Load model metadata
+  model <- read.csv(paste0(path.dm, "Model.csv"))
+  
+  ## Load saved variates files
+  x.variates.plot <- read.delim(
+    file = paste0(path.rcca, file_tag, "_X.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  y.variates.plot <- read.delim(
+    file = paste0(path.rcca, file_tag, "_Y.variates.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  )
+  
+  ## Annotate with cancer type
+  x.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(x.variates.plot$Score, model$ModelID)]
+  y.variates.plot$OncotreeLineage <- model$OncotreeLineage[match(y.variates.plot$Score, model$ModelID)]
+  
+  ## Get top N lineages by cell line count for coloring
+  top_lineages_n <- 15
+  top_lineages <- names(sort(table(x.variates.plot$OncotreeLineage), decreasing = TRUE))[1:top_lineages_n]
+  
+  x.variates.plot <- x.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  y.variates.plot <- y.variates.plot %>%
+    dplyr::mutate(lineage_label = dplyr::if_else(OncotreeLineage %in% top_lineages, OncotreeLineage, "Other"))
+  
+  ## Color palette
+  lineage_colors <- c(
+    RColorBrewer::brewer.pal(8, "Set1"),
+    RColorBrewer::brewer.pal(7, "Set2"),
+    "grey70"  # for "Other"
+  )
+  names(lineage_colors) <- c(top_lineages, "Other")
+  
+  ## Helper: scatter plots of scores
+  plot_scores_side <- function(df, source_label) {
+    
+    comp_cols <- grep("^X\\d+$", names(df), value = TRUE)
+    if (length(comp_cols) < 2) return(invisible(NULL))
+    
+    for (i in 2:length(comp_cols)) {
+      comp1_col <- "X1"
+      comp2_col <- paste0("X", i)
+      
+      p <- ggplot(
+        df,
+        aes_string(
+          x     = comp1_col,
+          y     = comp2_col,
+          color = "lineage_label"
+        )
+      ) +
+        geom_point(size = 1.8, alpha = 0.7) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.4) +
+        scale_color_manual(values = lineage_colors, name = "Lineage") +
+        labs(
+          title = paste0("rCCA | ", source_label, " scores: ", comp1_col, " vs ", comp2_col),
+          x     = comp1_col,
+          y     = comp2_col
+        ) +
+        theme_bw(base_size = 10) +
+        guides(color = guide_legend(override.aes = list(size = 3, alpha = 1), ncol = 1))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_",
+          comp1_col, "vs", comp2_col, ".pdf"
+        ),
+        plot = p, width = 7, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_side(x.variates.plot, paste0("X.", X_source))
+  plot_scores_side(y.variates.plot, paste0("Y.", Y_source))
+  
+  
+  ## Helper: boxplots of scores per lineage for comps 1-10
+  plot_scores_boxplot <- function(df, source_label) {
+    
+    comp_cols <- grep("^X([1-9]|10)$", names(df), value = TRUE)
+    
+    df_long <- df %>%
+      dplyr::select(Score, OncotreeLineage, dplyr::all_of(comp_cols)) %>%
+      tidyr::pivot_longer(
+        cols      = dplyr::all_of(comp_cols),
+        names_to  = "Component",
+        values_to = "Score_value"
+      ) %>%
+      dplyr::filter(!is.na(OncotreeLineage)) %>%
+      dplyr::mutate(
+        Component = factor(Component, levels = comp_cols),
+        OncotreeLineage = factor(
+          OncotreeLineage,
+          levels = df %>%
+            dplyr::filter(!is.na(OncotreeLineage)) %>%
+            dplyr::group_by(OncotreeLineage) %>%
+            dplyr::summarise(med = median(X1, na.rm = TRUE), .groups = "drop") %>%
+            dplyr::arrange(med) %>%
+            dplyr::pull(OncotreeLineage)
+        )
+      )
+    
+    ## Multi-facet overview PDF
+    p <- ggplot(
+      df_long,
+      aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+    ) +
+      geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, size = 0.3) +
+      facet_wrap(~ Component, scales = "free_y", ncol = 2) +
+      scale_fill_manual(
+        values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+          length(levels(df_long$OncotreeLineage))
+        ),
+        guide = "none"
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+      labs(
+        title = paste0("rCCA | ", source_label, " scores by cancer lineage (comps 1–10)"),
+        x     = NULL,
+        y     = "Score"
+      ) +
+      theme_bw(base_size = 9) +
+      theme(
+        axis.text.x   = element_text(angle = 45, hjust = 1, size = 6),
+        strip.text    = element_text(size = 9, face = "bold"),
+        panel.spacing = unit(0.4, "lines")
+      )
+    
+    ggsave(
+      filename = paste0(
+        path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_comps1to10.pdf"
+      ),
+      plot = p, width = 12, height = 18, units = "in", device = cairo_pdf
+    )
+    
+    ## Individual per-comp PDFs
+    for (comp in comp_cols) {
+      
+      df_comp <- df_long %>% dplyr::filter(Component == comp)
+      
+      p_ind <- ggplot(
+        df_comp,
+        aes(x = OncotreeLineage, y = Score_value, fill = OncotreeLineage)
+      ) +
+        geom_boxplot(outlier.size = 0.6, outlier.alpha = 0.5, size = 0.3) +
+        scale_fill_manual(
+          values = colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(
+            length(levels(df_comp$OncotreeLineage))
+          ),
+          guide = "none"
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.3) +
+        labs(
+          title = paste0("rCCA | ", source_label, " scores — ", comp, " by cancer lineage"),
+          x     = NULL,
+          y     = "Score"
+        ) +
+        theme_bw(base_size = 10) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+      
+      ggsave(
+        filename = paste0(
+          path.plots, "Plot_", file_tag, "_", source_label, ".scores_boxplot_", comp, ".pdf"
+        ),
+        plot = p_ind, width = 10, height = 5, units = "in", device = cairo_pdf
+      )
+    }
+  }
+  
+  plot_scores_boxplot(x.variates.plot, paste0("X.", X_source))
+  plot_scores_boxplot(y.variates.plot, paste0("Y.", Y_source))
+  
+}
+
+##### Max loading: Scatter & GSEA (back up) #####
 
 ## Set OS (for swapping between personal and workstation)
 OS <- "Mac" # Linux or Mac
@@ -2202,6 +2957,302 @@ ggsave(
   plot = p, width = 13, height = 9, units = "in", device = cairo_pdf
 )
 
+##### Max loading: Scatter & GSEA #####
+
+## Set OS (for swapping between personal and workstation)
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.pls     <- paste0(path.wd, "DataSets/PLS/")
+path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
+path.plots   <- paste0(path.wd, "Plots/")
+path.max     <- paste0(path.wd, "DataSets/MaxLoading/")
+path.scripts <- paste0(path.OS, "FDB_Freeland/Scripts/")
+
+source("/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/FGSEA_functions.R")
+
+## Set dim red technique. PLS, rCCA
+DimRedTec <- "PLS"
+
+## Set parameters. CRISPR, RNAi, CTRP
+X1_source <- "CRISPR"
+Y1_source <- "CTRP"
+
+X2_source <- "RNAi"
+Y2_source <- "CTRP"
+
+mode  <- "canonical" # default = regression, symmetric = canonical
+
+## Cell lines excluded in the upstream PLS/rCCA runs (must match what was used)
+## Set to character(0) if no filtering was applied
+exclude_lineages_1 <- c("Myeloid", "Lymphoid")  # for file1 (X1/Y1)
+exclude_lineages_2 <- c("Myeloid", "Lymphoid")  # for file2 (X2/Y2)
+
+### Create scatter plot and generate table of distances and theta
+if(1){
+  
+  ## Build excl tags to match upstream file_tag construction
+  excl_tag_1 <- if (length(exclude_lineages_1) > 0) {
+    paste0("_excl.", paste(exclude_lineages_1, collapse = "."))
+  } else {
+    ""
+  }
+  excl_tag_2 <- if (length(exclude_lineages_2) > 0) {
+    paste0("_excl.", paste(exclude_lineages_2, collapse = "."))
+  } else {
+    ""
+  }
+  
+  if (DimRedTec == "PLS") {
+    file1_tag <- paste0("PLS_Mode.", mode, "_X.", X1_source, "_Y.", Y1_source, excl_tag_1)
+    file2_tag <- paste0("PLS_Mode.", mode, "_X.", X2_source, "_Y.", Y2_source, excl_tag_2)
+  }
+  
+  if (DimRedTec == "rCCA") {
+    file1_tag <- paste0("rCCA_X.", X1_source, "_Y.", Y1_source, excl_tag_1)
+    file2_tag <- paste0("rCCA_X.", X2_source, "_Y.", Y2_source, excl_tag_2)
+  }
+  
+  ## read in data
+  X1_loadings <- read.delim(
+    file = paste0(path.pls, file1_tag, "_X.loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
+    dplyr::select(Loading, paste0("comp", 1:10))
+  
+  X2_loadings <- read.delim(
+    file = paste0(path.pls, file2_tag, "_X.loadings.txt"),
+    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
+  ) %>%
+    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
+    dplyr::select(Loading, paste0("comp", 1:10))
+  
+  ## find max abs()
+  X1_loadings_max <- X1_loadings %>%
+    tidyr::pivot_longer(
+      cols      = paste0("comp", 1:10),
+      names_to  = "component",
+      values_to = "loading"
+    ) %>%
+    dplyr::mutate(abs_loading = abs(loading)) %>%
+    dplyr::group_by(Loading) %>%
+    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    dplyr::rename(
+      component_CRISPR   = component,
+      loading_CRISPR     = loading,
+      abs_loading_CRISPR = abs_loading
+    )
+  
+  X2_loadings_max <- X2_loadings %>%
+    tidyr::pivot_longer(
+      cols      = paste0("comp", 1:10),
+      names_to  = "component",
+      values_to = "loading"
+    ) %>%
+    dplyr::mutate(abs_loading = abs(loading)) %>%
+    dplyr::group_by(Loading) %>%
+    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    dplyr::rename(
+      component_RNAi   = component,
+      loading_RNAi     = loading,
+      abs_loading_RNAi = abs_loading
+    )
+  
+  ## merge
+  Max <- merge(X1_loadings_max, X2_loadings_max, by = "Loading")
+  
+  xcol <- names(Max)[7]   # 7th column name
+  ycol <- names(Max)[4]   # 4th column name
+  
+  Max <- Max %>%
+    dplyr::mutate(
+      theta_rad = atan2(.data[[ycol]], .data[[xcol]]),
+      theta_deg = theta_rad * 180 / pi,
+      r         = sqrt(.data[[xcol]]^2 + .data[[ycol]]^2)
+    )
+  
+  ## Build output tag for file/plot names
+  out_tag <- paste0(
+    mode,
+    "_X1_", X1_source, "_vs_", Y1_source, excl_tag_1,
+    "_X2_", X2_source, "_vs_", Y2_source, excl_tag_2
+  )
+  
+  write.table(
+    x    = Max,
+    file = paste0(path.max, "MaxLoadingsDF_", out_tag, ".txt"),
+    quote = FALSE, sep = "\t", col.names = TRUE, row.names = FALSE
+  )
+  
+  ## plot
+  plot_df <- data.frame(
+    x    = Max[[7]],
+    y    = Max[[4]],
+    gene = Max$Loading
+  )
+  
+  p <- ggplot(plot_df, aes(x = x, y = y)) +
+    geom_point(size = 0.075, alpha = 0.3) +
+    geom_abline(
+      slope = tan(pi/6), intercept = 0,
+      linetype = "dotted", linewidth = 0.4, color = "grey40"
+    ) +
+    geom_abline(
+      slope = tan(pi/3), intercept = 0,
+      linetype = "dotted", linewidth = 0.4, color = "grey40"
+    ) +
+    labs(
+      x     = names(Max)[7],
+      y     = names(Max)[4],
+      title = "Max Absolute Loadings per Gene comp 1-10"
+    ) +
+    scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
+    scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
+    theme_classic(base_size = 10)
+  
+  ggsave(
+    filename = paste0(path.plots, "MaxLoadingsDF_", out_tag, "_Scatter.pdf"),
+    plot = p, width = 5, height = 4, units = "in", device = cairo_pdf
+  )
+  
+}
+
+#### Create GSEA Plot
+
+## Load msigdb pathways
+msig_df <- load.MSigDB(species = 'Homo sapiens')
+
+gsea_list <- get.MSigDB.genesets(
+  msig_df = rbind(
+    msigdbr::msigdbr(species = "Homo sapiens", collection = "C5")
+  ),
+  genesets = c("BP")
+)
+
+keyword_groups <- list(
+  IMMUNE =
+    c("INFLAME", "IMMUNE", "INTERLEUKIN", "LEUKOCYTE", "CD4",
+      "MACROPHAGE", "NEUTROPHILE"),
+  PROTEIN_PROCESSING =
+    c("PEPTIDE", "AMINO_ACID", "UBIQUITIN", "UBIQUITINATION"),
+  VIRAL_PROCESSES =
+    c("VIRAL", "SYMBIOTIC", "DSRNA"),
+  STRESS_RESPONSE =
+    c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
+  METABOLIC_PATHWAY =
+    c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
+      "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
+  MITOCHONDRIA =
+    c("MITOCHONDRIAL", "MITOCHONDRION"),
+  TRANSLATION =
+    c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
+  DNA_TRANSCRIPTION =
+    c("MRNA", "TRANSCRIPTION", "POLYMERASE", "TRANSCRIBED", "GENE_EXPRESSION"),
+  CELL_CYCLE =
+    c("CELL_CYCLE", "MITOTIC", "DNA_REPLICATION", "CHROMOSOME_SEGREGATION",
+      "CHROMATID_SEGREGATION", "SPINDLE", "CELL_DIVISION",
+      "KINETOCHORE", "CENTRIOLE", "ANAPHASE")
+)
+
+pathway_names <- names(gsea_list)
+
+## For each keyword group, find all pathways whose name contains ANY of the strings
+keyword_to_genes <- purrr::imap(
+  keyword_groups,
+  function(pattern_vec, kw_name) {
+    pattern_regex <- paste(pattern_vec, collapse = "|")
+    hit_idx <- grepl(pattern_regex, pathway_names, ignore.case = TRUE)
+    genes <- unique(unlist(gsea_list[hit_idx], use.names = FALSE))
+    genes
+  }
+)
+
+sapply(keyword_to_genes, length)
+
+## Long data frame: one row per (gene, keyword_group)
+keyword_gene_df <- purrr::imap_dfr(
+  keyword_to_genes,
+  ~ dplyr::tibble(
+    Loading       = .x,
+    keyword_group = .y
+  )
+)
+
+## Make sure groups have a fixed order
+keyword_gene_df$keyword_group <- factor(
+  keyword_gene_df$keyword_group,
+  levels = names(keyword_groups)
+)
+
+## Join to Max on the gene column "Loading"
+Max_kw <- Max %>%
+  dplyr::inner_join(keyword_gene_df, by = "Loading") %>%
+  dplyr::mutate(
+    keyword_group = factor(keyword_group, levels = names(keyword_groups))
+  )
+
+group_order <- Max_kw %>%
+  dplyr::group_by(keyword_group) %>%
+  dplyr::summarise(mean_theta = mean(theta_deg, na.rm = TRUE)) %>%
+  dplyr::arrange(dplyr::desc(mean_theta)) %>%
+  dplyr::pull(keyword_group)
+
+Max_kw$keyword_group <- factor(Max_kw$keyword_group, levels = group_order)
+
+## Set custom colors
+my_group_colors <- c(
+  IMMUNE              = "#fea605",
+  PROTEIN_PROCESSING  = "#0f34fe",
+  VIRAL_PROCESSES     = "#fefb39",
+  METABOLIC_PATHWAY   = "#006500",
+  MITOCHONDRIA        = "#5fe2d1",
+  TRANSLATION         = "#aa3337",
+  DNA_TRANSCRIPTION   = "#fd2600",
+  CELL_CYCLE          = "#fec0cc"
+)
+
+## Plot and save
+p <- ggplot2::ggplot(
+  Max_kw,
+  aes(x = r, y = theta_deg, color = keyword_group)
+) +
+  geom_density_2d(
+    aes(group = keyword_group),
+    linewidth = 0.5,
+    alpha     = 0.8
+  ) +
+  geom_point(size = 0.8, alpha = 0.6) +
+  geom_hline(
+    yintercept = c(30, 60),
+    linetype   = "dotted",
+    color      = "grey40",
+    linewidth  = 0.4
+  ) +
+  facet_grid(
+    . ~ keyword_group,
+    scales = "free_x",
+    space  = "free_x"
+  ) +
+  scale_color_manual(values = my_group_colors, guide = "none") +
+  theme_classic() +
+  scale_x_continuous(limits = c(0, 0.07))
+
+print(p)
+
+ggsave(
+  filename = paste0(path.plots, "MaxLoadingsDF_", out_tag, "_GSEA.pdf"),
+  plot = p, width = 13, height = 9, units = "in", device = cairo_pdf
+)
 ##### GSEA #####
 
 ## Set OS (for swapping between personal and workstation)
