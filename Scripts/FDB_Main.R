@@ -177,7 +177,7 @@ write.table(
 ##### Imputation: CTRP (NA's in Data) #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
