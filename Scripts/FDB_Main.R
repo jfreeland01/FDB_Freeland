@@ -25,9 +25,9 @@ if (1) {
   library(openxlsx)
   library(doParallel)
   library(GSVA)
-  
   library(MASS)
   library(fitdistrplus)
+  library(ggrepel)
 }
 
 #### Imputation: CRISPR (NA's in Data) ####
@@ -3568,324 +3568,6 @@ if(1) {
   
 }
 
-##### Max loading: Scatter & GSEA (back up) #####
-
-## Set OS (for swapping between personal and workstation)
-OS <- "Mac" # Linux or Mac
-
-if (OS == "Mac") {
-  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
-} else {
-  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
-}
-
-## Set paths
-path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
-path.pls     <- paste0(path.wd, "DataSets/PLS/")
-path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
-path.plots   <- paste0(path.wd, "Plots/")
-path.max     <- paste0(path.wd, "DataSets/MaxLoading/")
-path.scripts <- paste0(path.OS, "FDB_Freeland/Scripts/")
-
-source("/Users/jack/Documents/GitHub/FDB_Freeland/Scripts/FGSEA_functions.R")
-
-## Set dim red technique. PLS, rCCA
-DimRedTec <- "PLS"
-
-## Set parameters. CRISPR, RNAi, CTRP
-X1_source <- "CRISPR"
-Y1_source <- "CTRP"
-
-X2_source <- "RNAi"
-Y2_source <- "CTRP"
-
-mode  <- "canonical" # default = regression, symmetric = canonical
-
-### Create scatter plot and generate table of distances and theta
-if(1){
-  
-  if(DimRedTec == "PLS"){
-    ## file tag
-    file1_tag <- paste0("PLS_Mode.", mode, "_X.", X1_source, "_Y.", Y1_source)
-    file2_tag <- paste0("PLS_Mode.", mode, "_X.", X2_source, "_Y.", Y2_source)
-  }
-  
-  if(DimRedTec == "rCCA"){
-    ## file tag
-    file1_tag <- paste0("rCCA_X.", X1_source, "_Y.", Y1_source)
-    file2_tag <- paste0("rCCA_X.", X2_source, "_Y.", Y2_source)
-  }
-  
-  ## read in data
-  X1_loadings <- read.delim(
-    file = paste0(path.pls, file1_tag, "_X.loadings.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
-  ) %>%
-    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
-    dplyr::select(Loading, paste0("comp", 1:10))
-  
-  X2_loadings <- read.delim(
-    file = paste0(path.pls, file2_tag, "_X.loadings.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
-  ) %>%
-    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading)) %>%
-    dplyr::select(Loading, paste0("comp", 1:10))
-  
-  ## find max abs()
-  X1_loadings_max <- X1_loadings %>%
-    tidyr::pivot_longer(
-      cols = paste0("comp", 1:10),
-      names_to  = "component",
-      values_to = "loading"
-    ) %>%
-    dplyr::mutate(abs_loading = abs(loading)) %>%
-    dplyr::group_by(Loading) %>%
-    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
-    dplyr::ungroup() %>%
-    dplyr::rename(
-      component_CRISPR    = component,
-      loading_CRISPR      = loading,
-      abs_loading_CRISPR  = abs_loading
-    )
-  
-  X2_loadings_max <- X2_loadings %>%
-    tidyr::pivot_longer(
-      cols = paste0("comp", 1:10),
-      names_to  = "component",
-      values_to = "loading"
-    ) %>%
-    dplyr::mutate(abs_loading = abs(loading)) %>%
-    dplyr::group_by(Loading) %>%
-    dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
-    dplyr::ungroup() %>%
-    dplyr::rename(
-      component_RNAi    = component,
-      loading_RNAi      = loading,
-      abs_loading_RNAi  = abs_loading
-    )
-  
-  ## merge
-  Max <- merge(X1_loadings_max, X2_loadings_max, by = "Loading")
-  
-  xcol <- names(Max)[7]   # 7th column name
-  ycol <- names(Max)[4]   # 4th column name
-  
-  Max <- Max %>%
-    dplyr::mutate(
-      theta_rad = atan2(.data[[ycol]], .data[[xcol]]),
-      theta_deg = theta_rad * 180 / pi,
-      r         = sqrt(.data[[xcol]]^2 + .data[[ycol]]^2)
-    )
-  
-  write.table(
-    x = Max,
-    file = paste0(path.max, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, ".txt"),
-    quote = F, sep = "\t", col.names = T, row.names = F)
-  
-  ## plot 
-  plot_df <- data.frame(
-    x      = Max[[7]],   # 4th column = abs_loading_CRISPR
-    y      = Max[[4]],   # 7th column = abs_loading_RNAi
-    gene   = Max$Loading
-  )
-  
-  p <- ggplot(plot_df, aes(x = x, y = y)) +
-    geom_point(size = 0.075, alpha = 0.3) +
-    geom_abline(
-      slope = tan(pi/6), intercept = 0,
-      linetype = "dotted", linewidth = 0.4, color = "grey40"
-    ) +
-    geom_abline(
-      slope = tan(pi/3), intercept = 0,
-      linetype = "dotted", linewidth = 0.4, color = "grey40"
-    ) +
-    # theme_bw(base_size = 10) +
-    labs(
-      x = names(Max)[7],
-      y = names(Max)[4],
-      title = "Max Absolute Loadings per Gene comp 1-10"
-    ) +
-    scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
-    scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
-    theme_classic(base_size = 10)
-  
-  ggsave(
-    filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, "_Scatter.pdf"),
-    plot = p, width = 5, height = 4, units = "in", device = cairo_pdf
-  )
-  
-}
-
-#### Create GSEA Plot
-
-## Load msigdb pathways
-msig_df <- load.MSigDB(species = 'Homo sapiens')
-
-gsea_list <- get.MSigDB.genesets(
-  msig_df = rbind(
-    msigdbr::msigdbr(species = "Homo sapiens", collection = "C5")
-  ),
-  genesets = c("BP")
-)
-
-keyword_groups <- list(
-  # OX =
-  #   c("OXIDATIVE_PHOSPHORYLATION", "ELECTRON_TRANSPORT_CHAIN", "MITOCHONDRIAL_COMPLEX",
-  #     "NADH_DEHYDROGENASE", "MITOCHONDRIAL_LARGE_RIBOSOMAL"),
-  # DNA =
-  #   c("DNA_REPAIR", "DNA_DAMAGE_STIMULUS", "FANCONI", "END_JOINING"),
-  # NEURO = 
-  #   c("NEURO", "NEUROTRANSMITTER", "SYNAPTIC", "VOLTAGE", "AXON",
-  #     "CEREBRAL", "CORTEX", "DENDRITE", "GLUTAMATE"),
-  IMMUNE =
-    c("INFLAME", "IMMUNE", "INTERLEUKIN", "LEUKOCYTE", "CD4",
-      "MACROPHAGE", "NEUTROPHILE"),
-  # TISSUE_DEVELOPMENT =
-  #   c("MORPHOGENESIS", "VESSEL", "TISSUE_DEVELOPMENT", "TISSUE"),
-  # SENSORY_PERCEPTION =
-  #   c("SENSORY", "AUDITORY", "SMELL"),
-  # KINASE_ACTIVITY =
-  #   c("MAPK", "KINASE", "GTP", "TYROSINE"),
-  # CELL_DIFFERENTIATION =
-  #   c("KERATINOCYTE", "DIFFERENTIATION"),
-  # CELL_CELL_INTERACTION =
-  #   c("ADHESION", "ADHERENS", "CELL-CELL", "COMMUNICATION"),
-  # PEROXISOME =
-  #   c("PEROXIDE", "PEROXISOME"),
-  # CELL_PROLIFERATION =
-  #   c("PROLIFERATION"),
-  PROTEIN_PROCESSING =
-    c("PEPTIDE", "AMINO_ACID", "UBIQUITIN", "UBIQUITINATION"),
-  VIRAL_PROCESSES =
-    c("VIRAL", "SYMBIOTIC", "DSRNA"),
-  # MICRO_RNA =
-  #   c("MIRNA"),
-  STRESS_RESPONSE =
-    c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
-  METABOLIC_PATHWAY =
-    c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
-      "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
-  MITOCHONDRIA =
-    c("MITOCHONDRIAL", "MITOCHONDRION"),
-  # ORGANELLE_TRANSPORT =
-  #   c("ENDOPLASMIC_RETICULUM", "GOLGI", "VACUOLE"),
-  # ORGANELLE_ORGANIZATION =
-  #   c("ORGANELLE"),
-  # EPIGENETIC =
-  #   c("HISTONE", "NUCLEOSIDE", "DEMETHYLATION", "METHYLATION", "EPIGENETIC"),
-  # SPLICEOSOME =
-  #   c("SNRNA", "SPLICING", "SPLICEOSOME"),
-  TRANSLATION =
-    c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
-  DNA_TRANSCRIPTION =
-    c("MRNA", "TRANSCRIPTION", "POLYMERASE", "TRANSCRIBED", "GENE_EXPRESSION"),
-  CELL_CYCLE =
-    c("CELL_CYCLE", "MITOTIC", "DNA_REPLICATION", "CHROMOSOME_SEGREGATION",
-      "CHROMATID_SEGREGATION", "SPINDLE", "CELL_DIVISION",
-      "KINETOCHORE", "CENTRIOLE", "ANAPHASE")
-)
-
-pathway_names <- names(gsea_list)
-
-## For each keyword group, find all pathways whose name contains ANY of the strings
-keyword_to_genes <- purrr::imap(
-  keyword_groups,
-  function(pattern_vec, kw_name) {
-    
-    # single regex that ORs all patterns in the keyword group
-    pattern_regex <- paste(pattern_vec, collapse = "|")
-    
-    # which pathways match any of these patterns (case-insensitive)
-    hit_idx <- grepl(pattern_regex, pathway_names, ignore.case = TRUE)
-    
-    # union of all genes in those matched pathways
-    genes <- unique(unlist(gsea_list[hit_idx], use.names = FALSE))
-    
-    genes
-  }
-)
-
-sapply(keyword_to_genes, length)
-
-## Long data frame: one row per (gene, keyword_group)
-keyword_gene_df <- purrr::imap_dfr(
-  keyword_to_genes,
-  ~ dplyr::tibble(
-    Loading       = .x,   # gene symbol
-    keyword_group = .y    # name of the list element (e.g. "OX", "DNA", ...)
-  )
-)
-
-## Make sure groups have a fixed order
-keyword_gene_df$keyword_group <- factor(
-  keyword_gene_df$keyword_group,
-  levels = names(keyword_groups)
-)
-
-## Join to Max on the gene column "Loading"
-Max_kw <- Max %>%
-  dplyr::inner_join(keyword_gene_df, by = "Loading") %>%
-  dplyr::mutate(
-    keyword_group = factor(keyword_group, levels = names(keyword_groups))
-  )
-
-group_order <- Max_kw %>%
-  dplyr::group_by(keyword_group) %>%
-  dplyr::summarise(mean_theta = mean(theta_deg, na.rm = TRUE)) %>%
-  dplyr::arrange(dplyr::desc(mean_theta)) %>%
-  dplyr::pull(keyword_group)
-
-Max_kw$keyword_group <- factor(Max_kw$keyword_group, levels = group_order)
-
-## Set custom colors
-my_group_colors <- c(
-  IMMUNE              = "#fea605",
-  PROTEIN_PROCESSING  = "#0f34fe",
-  VIRAL_PROCESSES     = "#fefb39",
-  METABOLIC_PATHWAY   = "#006500",
-  MITOCHONDRIA        = "#5fe2d1",
-  TRANSLATION         = "#aa3337",
-  DNA_TRANSCRIPTION   = "#fd2600",
-  CELL_CYCLE          = "#fec0cc"
-)
-
-## Plot and save
-p <- ggplot2::ggplot(
-  Max_kw,
-  aes(x = r, y = theta_deg, color = keyword_group)
-) +
-  ## density wave contours — colored per group
-  geom_density_2d(
-    aes(group = keyword_group),   # ensures independent estimation per facet
-    linewidth = 0.5,
-    alpha = 0.8
-  ) +
-  geom_point(size = 0.8, alpha = 0.6) +
-  ## reference lines
-  geom_hline(
-    yintercept = c(30, 60),
-    linetype   = "dotted",
-    color      = "grey40",
-    linewidth  = 0.4
-  ) +
-  ## facets
-  facet_grid(
-    . ~ keyword_group,
-    scales = "free_x",
-    space  = "free_x"
-  ) +
-  ## apply your palette
-  scale_color_manual(values = my_group_colors, guide = "none") +
-  theme_classic() +
-  scale_x_continuous(limits = c(0, 0.07))
-
-print(p)
-
-ggsave(
-  filename = paste0(path.plots, "MaxLoadingsDF_", mode, "_X1_", X1_source, "_vs_", Y1_source, "_X2_", X2_source, "_vs_", Y2_source, "_GSEA.pdf"),
-  plot = p, width = 13, height = 9, units = "in", device = cairo_pdf
-)
-
 ##### Max loading: Scatter & GSEA #####
 
 ## Set OS (for swapping between personal and workstation)
@@ -3921,8 +3603,8 @@ mode  <- "canonical" # default = regression, symmetric = canonical
 
 ## Cell lines excluded in the upstream PLS/rCCA runs (must match what was used)
 ## Set to character(0) if no filtering was applied
-exclude_lineages_1 <- c("Myeloid", "Lymphoid")  # for file1 (X1/Y1)
-exclude_lineages_2 <- c("Myeloid", "Lymphoid")  # for file2 (X2/Y2)
+exclude_lineages_1 <- character(0) # for file1 (X1/Y1) c("Myeloid", "Lymphoid")
+exclude_lineages_2 <- character(0)  # for file2 (X2/Y2) c("Myeloid", "Lymphoid")
 
 ### Create scatter plot and generate table of distances and theta
 if(1){
@@ -4025,12 +3707,27 @@ if(1){
   
   ## plot
   plot_df <- data.frame(
-    x    = Max[[7]],
-    y    = Max[[4]],
-    gene = Max$Loading
-  )
+    x     = Max[[7]],
+    y     = Max[[4]],
+    gene  = Max$Loading,
+    theta = Max$theta_deg
+  ) %>%
+    dplyr::mutate(
+      angle_group = dplyr::case_when(
+        theta < 30  ~ "RNAi",
+        theta <= 60 ~ "Neutral",
+        TRUE        ~ "CRISPR"
+      ),
+      angle_group = factor(angle_group, levels = c("CRISPR", "Neutral", "RNAi"))
+    )
   
-  p <- ggplot(plot_df, aes(x = x, y = y)) +
+  top5 <- plot_df %>%
+    dplyr::mutate(r = sqrt(x^2 + y^2)) %>%
+    dplyr::group_by(angle_group) %>%
+    dplyr::slice_max(r, n = 5, with_ties = FALSE) %>%
+    dplyr::ungroup()
+  
+  p <- ggplot(plot_df, aes(x = x, y = y, color = angle_group)) +
     geom_point(size = 0.075, alpha = 0.3) +
     geom_abline(
       slope = tan(pi/6), intercept = 0,
@@ -4040,14 +3737,36 @@ if(1){
       slope = tan(pi/3), intercept = 0,
       linetype = "dotted", linewidth = 0.4, color = "grey40"
     ) +
+    geom_text_repel(
+      data        = top5,
+      aes(label   = gene),
+      size        = 2.5,
+      fontface    = "italic",
+      show.legend = FALSE,
+      max.overlaps = 20,
+      segment.size = 0.3,
+      segment.color = "grey50"
+    ) +
+    scale_color_manual(
+      values = c("RNAi" = "#7a1515", "Neutral" = "#BDBDBD", "CRISPR" = "#1a3a6b"),
+      name   = "Bias"
+    ) +
     labs(
-      x     = names(Max)[7],
-      y     = names(Max)[4],
-      title = "Max Absolute Loadings per Gene comp 1-10"
+      x     = "Maximal PLS-C RNAi Loading", # names(Max)[7]
+      y     = "Maximal PLS-C CRISPR Loading", # names(Max)[4]
+      # title = "Max Absolute Loadings per Gene comp 1-10"
     ) +
     scale_x_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
     scale_y_continuous(expand = expansion(mult = 0), limits = c(0, NA)) +
-    theme_classic(base_size = 10)
+    guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+    theme_classic(base_size = 10) +
+    theme(
+      # legend.position   = c(0.18, 0.82),
+      legend.background = element_blank(),
+      legend.key        = element_blank()
+      # legend.title      = element_text(size = 8),
+      # legend.text       = element_text(size = 7) 
+    )
   
   ggsave(
     filename = paste0(path.plots, "MaxLoadingsDF_", out_tag, "_Scatter.pdf"),
@@ -4185,7 +3904,7 @@ ggsave(
 ##### GSEA #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -4257,7 +3976,7 @@ write.table(FGSEA_results_rnk,
 ##### GSEA^2 #####
 
 ## Set OS (for swapping between personal and workstation)
-OS <- "Linux" # Linux or Mac
+OS <- "Mac" # Linux or Mac
 
 if (OS == "Mac") {
   path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
@@ -4284,73 +4003,56 @@ FGSEA_results_rnk <- read.table(
 
 ### Prep for GSEA^2 
 
-# Define keyword groups
+## Define keyword groups
 keyword_groups <- list(
-  OX =
-    c("OXIDATIVE_PHOSPHORYLATION", "ELECTRON_TRANSPORT_CHAIN", "MITOCHONDRIAL_COMPLEX",
-      "NADH_DEHYDROGENASE", "MITOCHONDRIAL_LARGE_RIBOSOMAL"),
-  DNA =
-    c("DNA_REPAIR", "DNA_DAMAGE_STIMULUS", "FANCONI", "END_JOINING"),
   NEURO = 
     c("NEURO", "NEUROTRANSMITTER", "SYNAPTIC", "VOLTAGE", "AXON",
       "CEREBRAL", "CORTEX", "DENDRITE", "GLUTAMATE"),
   IMMUNE =
     c("INFLAME", "IMMUNE", "INTERLEUKIN", "LEUKOCYTE", "CD4",
       "MACROPHAGE", "NEUTROPHILE"),
-  TISSUE_DEVELOPMENT =
-    c("MORPHOGENESIS", "VESSEL", "TISSUE_DEVELOPMENT", "TISSUE"),
-  SENSORY_PERCEPTION =
-    c("SENSORY", "AUDITORY", "SMELL"),
   KINASE_ACTIVITY =
     c("MAPK", "KINASE", "GTP", "TYROSINE"),
-  CELL_DIFFERENTIATION =
-    c("KERATINOCYTE", "DIFFERENTIATION"),
+  # CELL_DIFFERENTIATION =
+  #   c("KERATINOCYTE", "DIFFERENTIATION"),
   CELL_CELL_INTERACTION =
     c("ADHESION", "ADHERENS", "CELL-CELL", "COMMUNICATION"),
-  PEROXISOME =
-    c("PEROXIDE", "PEROXISOME"),
-  CELL_PROLIFERATION =
-    c("PROLIFERATION"),
+  # CELL_PROLIFERATION =
+  #   c("PROLIFERATION"),
   PROTEIN_PROCESSING =
     c("PEPTIDE", "AMINO_ACID", "UBIQUITIN", "UBIQUITINATION"),
-  VIRAL_PROCESSES =
-    c("VIRAL", "SYMBIOTIC", "DSRNA"),
-  MICRO_RNA =
-    c("MIRNA"),
   STRESS_RESPONSE =
     c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
   METABOLIC_PATHWAY =
     c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
       "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
-  MITOCHONDRIA =
-    c("MITOCHONDRIAL", "MITOCHONDRION"),
-  ORGANELLE_TRANSPORT =
-    c("ENDOPLASMIC_RETICULUM", "GOLGI", "VACUOLE"),
-  ORGANELLE_ORGANIZATION =
-    c("ORGANELLE"),
-  EPIGENETIC =
-    c("HISTONE", "NUCLEOSIDE", "DEMETHYLATION", "METHYLATION", "EPIGENETIC"),
-  SPLICEOSOME =
-    c("SNRNA", "SPLICING", "SPLICEOSOME"),
-  TRANSLATION =
-    c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
+  # MITOCHONDRIA =
+  #   c("MITOCHONDRIAL", "MITOCHONDRION"),
+  # TRANSLATION =
+  #   c("RIBOSOME", "RRNA", "TRNA", "TRANSLATION", "RIBONUCLEOPROTEIN"),
   DNA_TRANSCRIPTION =
     c("MRNA", "TRANSCRIPTION", "POLYMERASE", "TRANSCRIBED", "GENE_EXPRESSION"),
   CELL_CYCLE =
     c("CELL_CYCLE", "MITOTIC", "DNA_REPLICATION", "CHROMOSOME_SEGREGATION",
       "CHROMATID_SEGREGATION", "SPINDLE", "CELL_DIVISION",
-      "KINETOCHORE", "CENTRIOLE", "ANAPHASE")
+      "KINETOCHORE", "CENTRIOLE", "ANAPHASE"),
+  VIRAL_PROCESSES =
+    c("VIRAL", "SYMBIOTIC", "DSRNA"),
+  ORGANELLE_TRANSPORT =
+    c("ENDOPLASMIC_RETICULUM", "GOLGI", "VACUOLE"),
+  EPIGENETIC =
+    c("HISTONE", "NUCLEOSIDE", "DEMETHYLATION", "METHYLATION", "EPIGENETIC")
 )
 
-# Get ranks per keyword group 
+## Get ranks per keyword group 
 get_ranks_for_keywords <- function(results_df, keywords) {
-  pattern <- paste(keywords, collapse = "|")  # OR across all keywords
+  pattern <- paste(keywords, collapse = "|")
   results_df %>%
     dplyr::filter(stringr::str_detect(pathway, pattern)) %>%
     dplyr::pull(rank)
 }
 
-# Build GSEA^2 data frame
+## Build GSEA^2 data frame
 data_df <- purrr::imap_dfr(
   keyword_groups,
   ~ tibble::tibble(
@@ -4359,9 +4061,9 @@ data_df <- purrr::imap_dfr(
   )
 )
 
-print(table(data_df$Category))
+## print(table(data_df$Category))
 
-# KS Test (enrichment + signed ordering)
+## KS Test (enrichment + signed ordering)
 max_rank <- max(FGSEA_results_rnk$rank, na.rm = TRUE)
 
 ks_results <- data_df %>%
@@ -4370,7 +4072,6 @@ ks_results <- data_df %>%
     n         = dplyr::n(),
     mean_rank = mean(Value, na.rm = TRUE),
     p_ks      = if (n > 1) {
-      # Scale ranks to [0,1] and test vs Uniform(0,1)
       scaled_vals <- Value / max_rank
       stats::ks.test(scaled_vals, "punif")$p.value
     } else {
@@ -4379,14 +4080,9 @@ ks_results <- data_df %>%
     .groups = "drop"
   ) %>%
   dplyr::mutate(
-    # '+' = enriched toward low ranks (top of GSEA ranking)
-    # '-' = enriched toward high ranks (bottom of GSEA ranking)
     direction = dplyr::if_else(mean_rank <= max_rank / 2, "+", "-"),
-    # signed significance: large negative = strong '-' enrichment,
-    # large positive      = strong '+' enrichment
     logp        = dplyr::if_else(is.na(p_ks), NA_real_, -log10(p_ks)),
     signed_logp = dplyr::if_else(direction == "+", logp, -logp),
-    # significance stars
     sig_flag = dplyr::case_when(
       is.na(p_ks)        ~ "",
       p_ks <= 0.0001     ~ "****",
@@ -4408,10 +4104,8 @@ ks_results <- data_df %>%
   ) %>%
   dplyr::arrange(signed_logp)
 
-print(ks_results)
+## print(ks_results)
 
-# Use this ordering for the factor, so along the axis you go:
-# most significant '-'  --> weaker '-' --> weaker '+' --> most significant '+'
 ordered_levels <- ks_results$Category
 
 data_df$Category <- factor(
@@ -4419,83 +4113,150 @@ data_df$Category <- factor(
   levels = ordered_levels
 )
 
-# Left-side category labels (edit right-hand side later if you like)
-custom_labels <- c(
-  OX                     = "OX",
-  DNA                    = "DNA",
-  NEURO                  = "Neuro",
-  IMMUNE                 = "Immune",
-  TISSUE_DEVELOPMENT     = "Tissue Development",
-  SENSORY_PERCEPTION     = "Sensory Perception",
-  KINASE_ACTIVITY        = "Kinase Activity",
-  CELL_DIFFERENTIATION   = "Cell Differentiation",
-  CELL_CELL_INTERACTION  = "Cell–Cell Interaction",
-  PEROXISOME             = "Peroxisome",
-  CELL_PROLIFERATION     = "Cell Proliferation",
-  PROTEIN_PROCESSING     = "Protein Processing",
-  VIRAL_PROCESSES        = "Viral Processes",
-  MICRO_RNA              = "Micro RNA",
-  STRESS_RESPONSE        = "Stress Response",
-  METABOLIC_PATHWAY      = "Metabolic Pathway",
-  MITOCHONDRIA           = "Mitochondria",
-  ORGANELLE_TRANSPORT    = "Organelle Transport",
-  ORGANELLE_ORGANIZATION = "Organelle Organization",
-  EPIGENETIC             = "Epigenetic",
-  SPLICEOSOME            = "Spliceosome",
-  TRANSLATION            = "Translation",
-  DNA_TRANSCRIPTION      = "DNA Transcription",
-  CELL_CYCLE             = "Cell Cycle"
+# Color scale
+# Stepwise gradient: endpoints are darkest, middle is lightest.
+# Steps are evenly spaced (rank-based), ignoring actual p-value distances.
+#   RNAi arm  (signed_logp < 0): dark red #7a1515 → light red  #f0a0a0
+#   CRISPR arm (signed_logp > 0): light blue #93b8de → dark blue #1a3a6b
+#   non-significant (p > 0.05) : gray #888780
+#
+# Within each arm, categories are ranked by |signed_logp| (most extreme = rank 1)
+# and t_val = (rank - 1) / (n - 1) so rank 1 → t=0 (darkest), rank n → t=1 (lightest).
+
+hex_interp <- function(t, r1, g1, b1, r2, g2, b2) {
+  sprintf("#%02X%02X%02X",
+          round(r1 + t * (r2 - r1)),
+          round(g1 + t * (g2 - g1)),
+          round(b1 + t * (b2 - b1))
+  )
+}
+
+color_map <- ks_results %>%
+  dplyr::select(Category, signed_logp, p_ks) %>%
+  dplyr::mutate(
+    sig = !is.na(p_ks) & p_ks <= 0.05,
+    # rank within each arm by distance from zero (most extreme = rank 1)
+    rank_neg = dplyr::if_else(sig & signed_logp < 0,
+                              dplyr::dense_rank(signed_logp),   # most negative gets rank 1
+                              NA_integer_),
+    rank_pos = dplyr::if_else(sig & signed_logp > 0,
+                              dplyr::dense_rank(-signed_logp),  # most positive gets rank 1
+                              NA_integer_),
+    n_neg = sum(!is.na(rank_neg)),
+    n_pos = sum(!is.na(rank_pos)),
+    dot_color = dplyr::case_when(
+      # Non-significant → gray
+      !sig ~ "#888780",
+      # RNAi arm: rank 1 = darkest red #7a1515, rank n = lightest red #f0a0a0
+      signed_logp < 0 ~ hex_interp(
+        (rank_neg - 1) / pmax(n_neg - 1, 1),
+        0x7a, 0x15, 0x15,   # dark red
+        0xf0, 0xa0, 0xa0    # light red
+      ),
+      # CRISPR arm: rank 1 = darkest blue #1a3a6b, rank n = lightest blue #93b8de
+      signed_logp > 0 ~ hex_interp(
+        (rank_pos - 1) / pmax(n_pos - 1, 1),
+        0x1a, 0x3a, 0x6b,   # dark blue
+        0x93, 0xb8, 0xde    # light blue
+      ),
+      TRUE ~ "#888780"
+    )
+  )
+
+# Named vector: Category → hex color
+category_colors <- tibble::deframe(
+  dplyr::select(color_map, Category, dot_color)
 )
 
-# Right-side labels: p-value + direction + stars
+custom_labels <- c(
+  NEURO                  = "Neuro",
+  IMMUNE                 = "Immune",
+  KINASE_ACTIVITY        = "Kinase Activity",
+  # CELL_DIFFERENTIATION   = "Cell Differentiation",
+  CELL_CELL_INTERACTION  = "Cell\u2013Cell Interaction",
+  # CELL_PROLIFERATION     = "Cell Proliferation",
+  PROTEIN_PROCESSING     = "Protein Processing",
+  STRESS_RESPONSE        = "Stress Response",
+  METABOLIC_PATHWAY      = "Metabolic Pathway",
+  # MITOCHONDRIA           = "Mitochondria",
+  # TRANSLATION            = "Translation",
+  DNA_TRANSCRIPTION      = "DNA Transcription",
+  CELL_CYCLE             = "Cell Cycle",
+  EPIGENETIC             = "Epigenetic",
+  ORGANELLE_TRANSPORT    = "Organelle Transport",
+  VIRAL_PROCESSES        = "Viral Processes"
+)
+
 right_labels <- ks_results %>%
   dplyr::mutate(
-    right_lab = 
-      # paste0(
-      # "p = ", format(p_ks, scientific = TRUE, digits = 3),
-      # " (", direction, ") ", sig_flag)
-    paste0(
+    right_lab = paste0(
       " p = ",
       signif(p_ks, 3),
-      " (", direction, ") ", sig_flag
+      " (", direction, ")" #sig_flag
     )
   ) %>%
   dplyr::select(Category, right_lab) %>%
   tibble::deframe()
 
-# Plot (x = rank, y = category; labels on left and right)
-plt <- ggplot(data_df, ggplot2::aes(x = Value, y = Category)) +
-  geom_jitter(
+# Compute y-positions for the two dividing lines.
+# ordered_levels runs from most-negative signed_logp (bottom of plot = level 1)
+# to most-positive (top). In ggplot discrete y, level 1 = y=1, level 2 = y=2, etc.
+# We want lines between:
+#   (a) last sig RNAi category and first non-sig category
+#   (b) last non-sig category and first sig CRISPR category
+sig_rnai  <- ks_results %>% dplyr::filter(!is.na(p_ks) & p_ks <= 0.05 & signed_logp < 0)
+sig_crispr <- ks_results %>% dplyr::filter(!is.na(p_ks) & p_ks <= 0.05 & signed_logp > 0)
+
+# Position of each category on the y-axis (1 = bottom level in ordered_levels)
+cat_pos <- setNames(seq_along(ordered_levels), ordered_levels)
+
+# Line between last RNAi-sig and first non-sig (or CRISPR-sig)
+rnai_top_pos   <- max(cat_pos[sig_rnai$Category])
+crispr_bot_pos <- min(cat_pos[sig_crispr$Category])
+
+hline_y <- c(rnai_top_pos + 0.5, crispr_bot_pos - 0.5)
+
+# Plot
+plt <- ggplot2::ggplot(data_df, ggplot2::aes(x = Value, y = Category)) +
+  ggplot2::geom_hline(
+    yintercept = hline_y,
+    linetype   = "dotted",
+    linewidth  = 0.4,
+    color      = "grey40"
+  ) +
+  ggplot2::geom_jitter(
     height = 0.2,
     width  = 0,
-    aes(color = Category),
+    ggplot2::aes(color = Category),
     size   = 1,
     shape  = 16
   ) +
-  scale_y_discrete(
+  ggplot2::scale_color_manual(values = category_colors) +
+  ggplot2::scale_y_discrete(
     labels   = custom_labels,
-    sec.axis = dup_axis(
+    sec.axis = ggplot2::dup_axis(
       labels = right_labels[levels(data_df$Category)],
       name   = ""
     )
   ) +
-  scale_x_continuous(
+  ggplot2::scale_x_continuous(
     breaks = c(max_rank * 0.15, max_rank * 0.85),
-    labels = c("Enriched in\nRNAi", "Enriched in\nCRISPR")
+    labels = c("Enriched in\nCRISPR (+)", "Enriched in\nRNAi (-)")
   ) +
-  labs(x = "Rank", y = "") +
-  theme_minimal() +
-  theme(
-    axis.text.y.left  = element_text(size = 7),
-    axis.text.y.right = element_text(size = 7, hjust = 0),
-    axis.text.x       = element_text(size = 7),
-    legend.position   = "none",
-    panel.border      = element_rect(color = "black", fill = NA, size = 0.5),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor  = element_blank()
+  ggplot2::labs(x = "Rank", y = "") +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.y.left   = ggplot2::element_text(size = 7),
+    axis.text.y.right  = ggplot2::element_text(size = 7, hjust = 0),
+    axis.text.x        = ggplot2::element_text(size = 8),
+    axis.ticks.x       = ggplot2::element_blank(),
+    legend.position    = "none",
+    panel.border       = ggplot2::element_rect(color = "black", fill = NA, size = 0.5),
+    panel.grid.major   = ggplot2::element_blank(),
+    panel.grid.minor   = ggplot2::element_blank()
   )
 
-ggsave(
+ggplot2::ggsave(
   filename = paste0(
     path.plots,
     "GSEA_sq_",
@@ -6452,14 +6213,14 @@ if (1) {
   ## Get Hallmark EMT gene set
   hallmark_emt <- msigdbr::msigdbr(
     species = "Homo sapiens",
-    category = "H"
+    collection = "H"
   ) %>%
     dplyr::filter(gs_name == "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION") %>%
     dplyr::pull(gene_symbol) %>%
     unique()
-  
+
   cat("Number of genes in Hallmark EMT gene set:", length(hallmark_emt))
-  
+
   ## Save gene list
   write.table(
     x = data.frame(Gene = hallmark_emt),
@@ -6469,42 +6230,8 @@ if (1) {
   
 }
 
-#### ssGSEA
-if (1) {
-  
-  ## Load in data and format
-  counts <- read.table(
-    file = paste0(path.dm, "OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv"),
-    sep = ",",
-    header = TRUE)
-  
-  counts_trim <- counts %>%
-    dplyr::filter(IsDefaultEntryForModel == "Yes") %>%
-    dplyr::rename_with(~ sub("\\.\\..*", "", .)) %>%
-    dplyr::select(-X, -SequencingID, -IsDefaultEntryForModel, -ModelConditionID, -IsDefaultEntryForMC) %>%
-    tibble::column_to_rownames(var = "ModelID") %>%
-    t() %>%
-    data.frame()
-  
-  colnames(counts_trim) <- gsub("\\.", "-", colnames(counts_trim))
-  
-  ## Calculate Signature via ssGSEA
-  run.ssGSEA2 <- function(exp_mat, gene_list, method = "ssgsea", norm = F){
-    gsvaPar <- GSVA::ssgseaParam(exp_mat, gene_list, normalize = norm)
-    as.data.frame(t(GSVA::gsva(gsvaPar)))
-  }
-  
-  EMT_scores <- run.ssGSEA2(
-    exp_mat = as.matrix(counts_trim),
-    gene_list = list(EMT = hallmark_emt)
-  )
-
-}
-
 #### Score EMT signature
-
-## Method for scoring the gene set across cell lines
-score_method <- "ssgsea" # zscore or ssgsea
+score_method <- "zscore" # zscore or ssgsea
 
 if (1) {
   
@@ -6537,7 +6264,7 @@ if (1) {
       exp_mat   = as.matrix(counts_trim),
       gene_list = list(EMT = hallmark_emt)
     )
-    
+
     cat("EMT scores computed via ssGSEA")
     
   } else {
@@ -6560,10 +6287,10 @@ if (1) {
     ## Format to match ssGSEA output structure (cell lines x 1 column named "EMT")
     EMT_scores <- data.frame(
       EMT = emt_sum_z,
-      row.names = names(emt_mean_z)
+      row.names = names(emt_sum_z)
     )
     
-    cat("EMT scores computed via mean z-score across", length(emt_genes_present), "genes")
+    cat("EMT scores computed via sum z-score across", length(emt_genes_present), "genes")
     
   }
   
@@ -6575,24 +6302,125 @@ if (1) {
     file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_", score_method, ".txt"),
     sep = "\t",
     quote = F,
-    row.names = 
+    row.names =
   )
+  
 }
 
-#### Plot
+#### Co-Rank to Compare Z-score vs ssGSEA score
+if(1) {
+  
+  ssGSEA_rank <- read.table(
+    file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_ssgsea.txt"),
+    header = T, 
+    sep = "\t"
+  )
+  
+  ZScore_rank <- read.table(
+    file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_zscore.txt"),
+    header = T, 
+    sep = "\t"
+  )
+  
+  shared_samples <- intersect(rownames(ssGSEA_rank), rownames(ZScore_rank))
+  
+  ssGSEA_rank_shared <- ssGSEA_rank %>%
+    dplyr::filter(rownames(.) %in% shared_samples) %>%
+    dplyr::mutate(rank_ssGSEA = c(1:nrow(.))) %>%
+    dplyr::select(rank_ssGSEA)
+  
+  ZScore_rank_shared <- ZScore_rank %>%
+    dplyr::filter(rownames(.) %in% shared_samples) %>%
+    dplyr::mutate(rank_ZScore = c(1:nrow(.))) %>%
+    dplyr::select(rank_ZScore)
+  
+  merged_df_all <- merge(ssGSEA_rank_shared, ZScore_rank_shared, by = "row.names")
+  
+  length <- dim(merged_df_all)[1]
+  
+  # point <- merged_df_all %>% dplyr::filter(Row.names == "")
+  
+  pdf(file = paste0(path.mel, "Plot_CoRank_EMT_Scoring.pdf"), width = 7.25, height = 6.5)
+  ggplot(merged_df_all, aes(x = rank_ZScore, y = rank_ssGSEA)) +
+    theme(axis.ticks = element_blank()) +
+    stat_density_2d(
+      aes(fill = ..density..),
+      geom = "raster", 
+      contour = FALSE
+    ) +
+    scale_fill_distiller(
+      palette= "Spectral",
+      name = "Density"
+    ) +
+    scale_x_continuous(
+      breaks = c(length*.5),
+      labels = c("Z-Score Rank"),
+      expand = c(0, 0)
+    ) +
+    scale_y_continuous(
+      breaks = c(length*.5),
+      labels = c("ssGSEA Rank"),
+      expand = c(0, 0)
+    ) +
+    theme(
+      legend.position = "right", 
+      panel.border = element_rect(colour = "black", fill=NA, size=.75), 
+      text = element_text(size = 20),
+      axis.text.y = element_text(angle = 90, vjust = 1, hjust = 0.5, size = 18),
+      axis.text.x = element_text(size = 18),
+      plot.title = element_text(size = 14)
+    ) +
+    xlab("") + ylab("") +
+    geom_point(size = .25, alpha = 0.2) +
+    # geom_point(
+    #   data = point,
+    #   color = "black",
+    #   fill = "#E23F44",
+    #   shape = 21,
+    #   size = 4,
+    #   stroke = 0.6
+    # )
+  # geom_text_repel(
+  #   data = point,
+  #   aes(label = Row.names),
+  #   color = "#E23F44",
+  #   size = 7.5,
+  #   fontface = "bold",
+  #   nudge_y = 50,
+  #   nudge_x = 50,
+  #   box.padding = 0.25,
+  #   point.padding = 0.3,
+  #   max.overlaps = Inf
+  # )
+  labs(title = "Hallmart EMT Signature Score")
+  dev.off()
+
+}
+
+#### Plot Figure
 
 ## Set Parameters
-
-score_method <- "zscore"    # zscore or ssgsea
-weight       <- "function"  # function (standard, WLS via weights argument, abs weights) or prior (direct multiply wx transformation, signed weights)
+score_method <- "ssgsea"    # zscore or ssgsea
+weight       <- "function"  # function (standard, WLS via weights argument, abs weights) or prior (direct multiply wx transformation, signed weights. not the standard)
 
 # Lineage filtering — uses exact OncotreeLineage values from Model.csv (one or both must = NULL)
-keep   <- NULL # only retain these lineages  e.g. c("Skin")
-remove <- c("Lymphoid", "Myeloid") # drop these lineages         e.g. c("Lymphoid", "Myeloid")
+keep <- c("Biliary Tract", "Bladder", "Bowel", "Breast", "Cervix", "Esophagus", "Head and Neck", "Kidney", "Liver", "Lung", "Ovary", "Pancreas", "Prostate", "Skin", "Thyroid", "Uterus", "Vulva", "Ampulla of Vater", "Pleura") # only retain these lineages  e.g. c("Skin") or NULL, or epithelial c("Biliary Tract", "Bladder/Urinary Tract", "Bowel", "Breast", "Cervix", "Esophagus/Stomach", "Head and Neck", "Kidney", "Liver", "Lung", "Ovary/Fallopian Tube", "Pancreas", "Prostate", "Skin", "Thyroid", "Uterus", "Vulva/Vagina", "Ampulla of Vater", "Pleura")
+remove <- NULL # drop these lineages  e.g. c("Lymphoid", "Myeloid") or NULL
 
 # Adrenal Gland, Ampulla of Vater, Biliary Tract, Bladder/Urinary Tract, Bone, Bowel, Breast, Cervix, CNS/Brain, Embryonal, Esophagus/Stomach, Eye, Fibroblast, Hair, Head and Neck, Kidney, Liver, Lung, Lymphoid, Muscle, Myeloid , Normal, Other, Ovary/Fallopian Tube, Pancreas Peripheral Nervous System, Pleura, Prostate, Skin, Soft Tissue, Testis, Thyroid, Uterus, Vulva/Vagina
 
 if (1) {
+  
+  ## Read in loadings to see where MED12 is pulled out the most
+  PLS_loadings <- read.delim(
+    file = paste0(path.pls, "PLS_Mode.canonical_X.CRISPR_Y.CTRP_X.loadings.txt"),
+    sep = "\t", stringsAsFactors = F, check.names = F
+  ) %>%
+    dplyr::filter(Loading == "GPX4") %>%
+    tibble::column_to_rownames(var = "Loading")
+  
+  # MED12 strongest on comp 3 (negative side)
+  # GPX4 strongest on comp 3 (psotive side)
   
   ## Read in PLS-C variates
   PLS_variates <- read.delim(
@@ -6600,10 +6428,10 @@ if (1) {
     sep = "\t", stringsAsFactors = F, check.names = F
   )
   
-  weights_comp2 <- PLS_variates$comp2
-  names(weights_comp2) <- PLS_variates$Score
+  weights_comp <- PLS_variates$comp3
+  names(weights_comp) <- PLS_variates$Score
   
-  ## Read in signature score
+  # Read in signature score
   EMT_scores <- read.table(
     file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_", score_method, ".txt"),
     sep = "\t"
@@ -6623,7 +6451,7 @@ if (1) {
   common_ids <- Reduce(intersect, list(
     rownames(EMT_scores),
     rownames(CRISPR),
-    names(weights_comp2)
+    names(weights_comp)
   ))
   cat("Number of common cell lines (pre-filter):", length(common_ids))
   
@@ -6633,7 +6461,7 @@ if (1) {
     EMT      = EMT_scores[common_ids, "EMT"],
     GPX4     = CRISPR[common_ids, "GPX4"],
     MED12    = CRISPR[common_ids, "MED12"],
-    W        = weights_comp2[common_ids]
+    W        = weights_comp[common_ids]
   )
   df <- merge(df, model[, c("ModelID", "OncotreeLineage", "OncotreePrimaryDisease")], by = "ModelID")
   
@@ -6663,7 +6491,7 @@ if (1) {
   ## Cancer type grouping
   df$cancer_group <- dplyr::case_when(
     grepl("Brain",           df$OncotreeLineage, ignore.case = TRUE) ~ "Brain Cancer",
-    grepl("Gastric|Stomach", df$OncotreeLineage, ignore.case = TRUE) ~ "Gastric Cancer",
+    grepl("Stomach", df$OncotreeLineage, ignore.case = TRUE) ~ "Gastric Cancer",
     grepl("Head|Neck",       df$OncotreeLineage, ignore.case = TRUE) ~ "Head and Neck Cancer",
     grepl("Kidney|Renal",    df$OncotreeLineage, ignore.case = TRUE) ~ "Kidney Cancer",
     grepl("Skin|Melanoma",   df$OncotreeLineage, ignore.case = TRUE) ~ "Skin Cancer",
@@ -6675,6 +6503,108 @@ if (1) {
   
   ## Update common_ids to match filtered df
   common_ids <- df$ModelID
+  
+  ## Build save name from parameters
+  weight_tag <- ifelse(weight == "function", "WLS", "PRIOR")
+  
+  filter_tag <- dplyr::case_when(
+    !is.null(keep)   & length(keep)   > 0 ~ paste0("KEEP.", paste(keep,   collapse = ".")),
+    !is.null(remove) & length(remove) > 0 ~ paste0("REM.",  paste(remove, collapse = ".")),
+    TRUE ~ "ALL"
+  )
+  
+  ## Genes to be highlighted in plots
+  genes_gpx4 <- c("GPX4", "SEPSECS", "PSTK", "EEFSEC", "SECISBP2", "SEPHS2")
+  genes_med  <- c("MED24", "MED16", "MED25", "MED10", "MED19", "MED1", "MED23", "MED9", "MED15", "MED12")
+  
+  #### Genome-wide CRISPR correlation with EMT signature
+  if (1) {
+    
+    ## Subset CRISPR to filtered cell lines
+    CRISPR_filtered <- CRISPR[common_ids, ]
+    EMT_filtered    <- EMT_scores[common_ids, "EMT"]
+    
+    ## Correlate every gene with EMT score
+    genome_wide_cor <- sapply(colnames(CRISPR_filtered), function(g) {
+      cor(CRISPR_filtered[, g], EMT_filtered, use = "pairwise.complete.obs")
+    })
+    
+    ## Format results
+    genome_wide_df <- data.frame(
+      gene = names(genome_wide_cor),
+      r    = genome_wide_cor,
+      row.names = NULL,
+      stringsAsFactors = FALSE
+    ) %>%
+      dplyr::arrange(dplyr::desc(r))
+    
+    ## Add rank and highlight columns
+    genome_wide_df$rank       <- seq_len(nrow(genome_wide_df))
+    genome_wide_df$gene_group <- dplyr::case_when(
+      genome_wide_df$gene %in% genes_gpx4 ~ "GPX4 module",
+      genome_wide_df$gene %in% genes_med  ~ "MED12 module",
+      TRUE                                ~ "Other"
+    )
+    
+    cat("Top 10 positively correlated genes:\n")
+    print(head(genome_wide_df, 10))
+    cat("Top 10 negatively correlated genes:\n")
+    print(tail(genome_wide_df, 10))
+    
+    ## Save full results
+    write.table(
+      x         = genome_wide_df,
+      file      = paste0(path.mel, "GenomeWide_CRISPR_EMT_Correlation_", filter_tag, "_", score_method, ".txt"),
+      sep       = "\t",
+      quote     = FALSE,
+      row.names = FALSE
+    )
+    
+    ## Plot: ranked correlation (waterfall), highlighting gene modules
+    p_genome <- ggplot2::ggplot(genome_wide_df, ggplot2::aes(x = rank, y = r, color = gene_group)) +
+      ggplot2::geom_point(
+        data = genome_wide_df %>% dplyr::filter(gene_group == "Other"),
+        size = 0.3, alpha = 0.4
+      ) +
+      ggplot2::geom_point(
+        data = genome_wide_df %>% dplyr::filter(gene_group != "Other"),
+        size = 2.5, alpha = 1
+      ) +
+      ggrepel::geom_text_repel(
+        data        = genome_wide_df %>% dplyr::filter(gene_group != "Other"),
+        ggplot2::aes(label = gene),
+        size        = 3,
+        max.overlaps = Inf,
+        box.padding  = 0.3,
+        point.padding = 0.2
+      ) +
+      ggplot2::scale_color_manual(
+        values = c(
+          "GPX4 module"  = "#1a3f6f",
+          "MED12 module" = "#4b0070",
+          "Other"        = "#C0C0C0"
+        ),
+        name = ""
+      ) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+      ggplot2::labs(
+        x = "Gene Rank",
+        y = "Pearson r (CRISPR Dependency vs EMT Score)",
+        title = paste0("Genome-wide CRISPR ~ EMT Correlation | ", filter_tag, " | ", score_method)
+      ) +
+      ggplot2::theme_bw() +
+      ggplot2::theme(legend.position = "top")
+    
+    ggplot2::ggsave(
+      filename = paste0(path.plots, "GenomeWide_CRISPR_EMT_Correlation_", filter_tag, "_", score_method, ".pdf"),
+      plot     = p_genome,
+      width    = 10,
+      height   = 6
+    )
+    
+    cat("Saved genome-wide correlation plot and table.")
+    
+  }
   
   ## Define weighted_r based on weight switch
   if (weight == "function") {
@@ -6688,7 +6618,7 @@ if (1) {
     }
     
     smooth_weight <- df$W_abs
-    bar_w         <- abs(weights_comp2[common_ids])
+    bar_w         <- abs(weights_comp[common_ids])
     
   } else {
     
@@ -6702,7 +6632,7 @@ if (1) {
     }
     
     smooth_weight <- df$W_abs
-    bar_w         <- weights_comp2[common_ids]
+    bar_w         <- weights_comp[common_ids]
     
   }
   
@@ -6728,8 +6658,6 @@ if (1) {
   )
   
   ## Panel A: Bar chart (side-by-side raw unweighted vs weighted)
-  genes_gpx4 <- c("GPX4", "SEPSECS", "PSTK", "EEFSEC", "SECISBP2", "SEPHS2")
-  genes_med  <- c("MED24", "MED16", "MED25", "MED10", "MED19", "MED1", "MED23", "MED9", "MED15", "MED12")
   all_genes  <- c(genes_gpx4, genes_med)
   all_genes  <- all_genes[all_genes %in% colnames(CRISPR)]
   
@@ -6795,6 +6723,16 @@ if (1) {
       color = "black", linewidth = 0.7
     ) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+    ggplot2::annotate(
+      "text",
+      x = -Inf, y = Inf,
+      hjust = -0.1, vjust = 1.5,
+      label = paste0(
+        "r (unweighted) = ", round(gpx4_unw, 3),
+        "\nr (weighted) = ",  round(gpx4_wr$r, 3)
+      ),
+      size = 3, fontface = "italic"
+    ) +
     ggplot2::scale_color_manual(values = cancer_colors, name = "Cancer Types") +
     ggplot2::scale_shape_manual(
       values = c("Positive Variate" = 16, "Negative Variate" = 17),
@@ -6802,8 +6740,10 @@ if (1) {
     ) +
     ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
     ggplot2::labs(
-      x = "Differentiation Score",
-      y = "GPX4 CRISPR Dependency\nLess dependent \u2190\u2192 More dependent"
+      x = "Differentiation Score\n
+      Differentiated \u2190  \u2192 Un-differentiated
+      \n Epithelial \u2190  \u2192 Mesenchymal",
+      y = "GPX4 CRISPR Dependency\nMore Dependent \u2190\u2192 Less Dependent"
     ) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "none")
@@ -6819,13 +6759,26 @@ if (1) {
       color = "black", linewidth = 0.7
     ) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dotted", color = "grey50") +
+    ggplot2::annotate(
+      "text",
+      x = -Inf, y = Inf,
+      hjust = -0.1, vjust = 1.5,
+      label = paste0(
+        "r (unweighted) = ", round(med12_unw, 3),
+        "\nr (weighted) = ",  round(med12_wr$r, 3)
+      ),
+      size = 3, fontface = "italic"
+    ) +
     ggplot2::scale_color_manual(values = cancer_colors, name = "Cancer Types") +
     ggplot2::scale_shape_manual(
       values = c("Positive Variate" = 16, "Negative Variate" = 17),
       name = "Variate Score"
     ) +
     ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
-    ggplot2::labs(x = "Differentiation Score", y = "MED12 CRISPR Dependency") +
+    ggplot2::labs(x = "Differentiation Score\n
+      Differentiated \u2190  \u2192 Un-differentiated
+      \n Epithelial \u2190  \u2192 Mesenchymal",
+                  y = "MED12 CRISPR Dependency") +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "none")
   
@@ -6859,15 +6812,6 @@ if (1) {
     labels = c("A", "")
   )
   
-  ## Build save name from parameters
-  weight_tag <- ifelse(weight == "function", "WLS", "PRIOR")
-  
-  filter_tag <- dplyr::case_when(
-    !is.null(keep)   & length(keep)   > 0 ~ paste0("KEEP.", paste(keep,   collapse = ".")),
-    !is.null(remove) & length(remove) > 0 ~ paste0("REM.",  paste(remove, collapse = ".")),
-    TRUE ~ "ALL"
-  )
-  
   save_name <- paste0(
     "EMT_Differentiation_GPX4_MED12_Figure3",
     "_", filter_tag,
@@ -6878,14 +6822,12 @@ if (1) {
   
   ggplot2::ggsave(
     filename = paste0(path.plots, save_name),
-    plot = full_fig, width = 12, height = 8
+    plot = full_fig, width = 10, height = 8
   )
   
   cat("Saved:", save_name)
   
 }
-
-
 
 ##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
 #
