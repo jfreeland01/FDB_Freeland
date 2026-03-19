@@ -337,6 +337,9 @@ mode_label <- if (mode == "canonical") "PLS-C" else "PLS-R"
 ## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
 exclude_lineages <- character(0)  # e.g. c("Myeloid", "Lymphoid") or character(0)
 
+## For plot iterations 
+Special_string <- "_MED12" # character(0) or "_VALUE"
+
 #### 1. Execute to prep for PLS
 if(1) {
   
@@ -387,7 +390,7 @@ if(1) {
 }
 
 #### 2. Execute to run PLS and save output files (requires Step 1)
-if(1){
+if(0) {
   
   ## Run PLS
   pls_fit <- mixOmics::pls(
@@ -519,21 +522,21 @@ if(1) {
     ## Groupings
     df <- df %>%
       dplyr::mutate(
-        group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
-          stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
-          stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
-          stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
-          stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
-          detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
-          TRUE ~ NA_character_
+        Group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|dabrafenib|PLX\\-4720|PLX\\-4032|dabrafenib|GDC\\-0879)$") ~ "BRAF & MEK\nInhibitors", # sorafenib, regorafenib, RAF265
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "EGFR & HER2\nInhibitors",
+          stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "Ferroptosis\nInducers",
+          # stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
+          # stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
+          # stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
+          # detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
+          TRUE ~ "Other"
         ),
-        group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-        group.na = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na = dplyr::if_else(!is.na(group), Loading, NA_character_),
-        label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
+        # group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
+        group.na = dplyr::if_else(is.na(Group), 1L, 0L),
+        # group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na = dplyr::if_else(!is.na(Group), Loading, NA_character_),
+        # label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
         mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
@@ -577,24 +580,28 @@ if(1) {
     
     df <- df %>%
       dplyr::mutate(
-        group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)") ~ "01 BRAF sig",
-          stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|PIK3CA|ERBB2)$")     ~ "02 EGFR sig",
-          stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$") ~ "03 ferropt",
-          stringr::str_detect(Loading, "^MDM[24]$")                                  ~ "04 MDM2.MDM4",
-          stringr::str_detect(Loading, "^ATP5")                                      ~ "05 ATP5",
-          stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                         ~ "06 dasa targets",
-          stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                ~ "07 BCL2+",
-          stringr::str_detect(Loading, "^MYC(|N|L)")                                 ~ "08 MYC.",
-          stringr::str_detect(Loading, "^(GRB2|CRKL)$")                              ~ "09 SRC-related",
-          stringr::str_detect(Loading, "^TP53$")                                     ~ "10 TP53",
-          stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
-          TRUE ~ NA_character_
+        Group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)\\b") ~ "BRAF Signalling",
+          stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|ERBB2)$")     ~ "EGFR Signalling",
+          stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$") ~ "Ferroptosis",
+          # stringr::str_detect(Loading, "^MDM[24]$")                                  ~ "04 MDM2.MDM4",
+          # stringr::str_detect(Loading, "^ATP5")                                      ~ "05 ATP5",
+          # stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                         ~ "06 dasa targets",
+          # stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                ~ "07 BCL2+",
+          # stringr::str_detect(Loading, "^MYC(|N|L)")                                 ~ "08 MYC.",
+          # stringr::str_detect(Loading, "^(GRB2|CRKL)$")                              ~ "09 SRC-related",
+          # stringr::str_detect(Loading, "^TP53$")                                     ~ "10 TP53",
+          stringr::str_detect(Loading, "^(MED12)$")
+          ~ "MED12", # MED12
+          # ~ "CDK8 Kinase Module", # MED12|MED13|CDK8|CCNC
+          # ~ "Wnt/B-catenin Sig", # MED12|MED13|CDK8|CCNC|CTNNB1|APC|AXIN1|TCF7L2
+          # ~ "Super-Enhancer Axis", # MED12|MED13|CDK8|CCNC|MED1|BRD4|CDK9|CCNT1
+          TRUE ~ "Other"
         ),
         group.atp5        = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
-        group.na          = dplyr::if_else(is.na(group), 1L, 0L),
+        group.na          = dplyr::if_else(is.na(Group), 1L, 0L),
         group.atp5.na     = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na      = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        label.not.na      = dplyr::if_else(!is.na(Group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_)
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
@@ -613,19 +620,32 @@ if(1) {
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_crispr(Y_loadings, "Y")
   
   ## Plotting colors (always plot both sides)
-  my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
-                 "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
+  # my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
+  #                "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
+  # 
+  
+  group_colors <- c(
+    "BRAF Signalling"  = "#F8766D",
+    "BRAF & MEK\nInhibitors"    = "#F8766D",
+    "EGFR Signalling"  = "#DE8C00",
+    "EGFR & HER2\nInhibitors"   = "#DE8C00",
+    "Ferroptosis"      = "#B79F00",
+    "Ferroptosis\nInducers"       = "#B79F00",
+    "MED12"            = "#00BA38",
+    "Other"            = "grey80"
+  )
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
     
     df <- df %>%
       dplyr::mutate(
         label_flag = dplyr::if_else(
-          is.na(.data[[color_col]]),
+          is.na(.data[[color_col]]) | .data[[color_col]] == "Other",
           "Unlabeled",
           "Labeled"
         )
-      )
+      ) %>%
+      dplyr::arrange(desc(.data[[color_col]] == "Other" | is.na(.data[[color_col]])))
     
     comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
@@ -657,13 +677,17 @@ if(1) {
         ) +
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        scale_color_manual(values = my_colors, na.value = "grey80") +
+        scale_color_manual(
+          values = group_colors,
+          na.value = "grey80",
+          breaks = c(names(group_colors)[names(group_colors) != "Other"], "Other")
+        ) +
         labs(title = paste0(mode_label, " | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
         filename = paste0(
-          path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
+          path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, Special_string, ".pdf"
         ),
         plot = p, width = 6, height = 4, units = "in", device = cairo_pdf
       )
@@ -671,15 +695,15 @@ if(1) {
   }
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "Group", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "Group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "Group", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "Group", "Loading")
   }
 }
 
@@ -895,6 +919,9 @@ mode_label <- if (mode == "canonical") "PLS-C" else "PLS-R"
 ## Cell lines to exclude by OncotreeLineage (set to character(0) to skip filtering)
 exclude_lineages <- character(0)  # e.g. c("Myeloid", "Lymphoid") or character(0)
 
+## For plot iterations
+Special_string <- "_MED12" # character(0) or "_VALUE"
+
 #### 1. Execute to prep for PLS
 if(1) {
   
@@ -1082,30 +1109,33 @@ if(1) {
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
     
+    ## Map compound name -> target info
     lk <- match(df$Loading, ctrp.inform$cpd_name)
     df$drug.target <- ctrp.inform$target_or_activity_of_compound[lk]
     
+    ## Groupings
     df <- df %>%
       dplyr::mutate(
-        group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|RAF265|dabrafenib|regorafenib|PLX\\-4720|PLX\\-4032|sorafenib|dabrafenib|GDC\\-0879)$") ~ "01 BRAFi.MEKi",
-          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "02 EGFRi.HER2i",
-          stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "03 ferropt",
-          stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
-          stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
-          stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
-          detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
-          TRUE ~ NA_character_
+        Group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(selumetinib|PD318088|trametinib|dabrafenib|PLX\\-4720|PLX\\-4032|dabrafenib|GDC\\-0879)$") ~ "BRAF & MEK\nInhibitors", # sorafenib, regorafenib, RAF265
+          stringr::str_detect(Loading, "^(erlotinib|afatinib|lapatinib|neratinib|canertinib|vandetanib|gefitinib|PD 153035)$") ~ "EGFR & HER2\nInhibitors",
+          stringr::str_detect(Loading, "^(1S\\,3R\\-RSL\\-3|ML210|erastin|ML162)$") ~ "Ferroptosis\nInducers",
+          # stringr::str_detect(Loading, "^(nutlin\\-3|HBX\\-41108|KU\\-60019)$") ~ "04 MDM2i",
+          # stringr::str_detect(Loading, "^oligomycin[\\ .]?A$") ~ "05 oligomycinA",
+          # stringr::str_detect(Loading, "^dasatinib") ~ "06 SRC",
+          # detect(drug.target, "BCL2") & !stringr::str_detect(Loading, ":") ~ "07 BCL2+i",
+          TRUE ~ "Other"
         ),
-        group.atp5    = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
-        group.na      = dplyr::if_else(is.na(group), 1L, 0L),
-        group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na  = dplyr::if_else(!is.na(group), Loading, NA_character_),
-        label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
-        mix.flag      = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
+        # group.atp5 = dplyr::if_else(stringr::str_detect(Loading, "^oligomycin[\\ .]?A$"), "05 oligomycinA", NA_character_),
+        group.na = dplyr::if_else(is.na(Group), 1L, 0L),
+        # group.atp5.na = dplyr::if_else(is.na(group.atp5), 1L, 0L),
+        label.not.na = dplyr::if_else(!is.na(Group), Loading, NA_character_),
+        # label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_),
+        mix.flag = dplyr::if_else(stringr::str_detect(Loading, ":"), "dual drug", "single drug")
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
+    ## Target-category bucketing
     df <- df %>%
       dplyr::mutate(target.category = NA_character_) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "DNA damage"), "DNA.damage", target.category)) %>%
@@ -1119,6 +1149,7 @@ if(1) {
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "dihydrofolate reductase|\\bDHFR\\b"), "DHFR", target.category)) %>%
       dplyr::mutate(target.category = dplyr::if_else(detect(drug.target, "BCL2"), "BCL2.", target.category))
     
+    ## %NA per compound using non-imputed CTRP matrix
     percent.nas <- as.data.frame(colMeans(is.na(CTRP_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1127,14 +1158,13 @@ if(1) {
     df
   }
   
-  ### Annotation for a RNAi loadings frame (gene metadata buckets)
+  ### Annotation for RNAi loadings file
   annotate_rnai <- function(df, side_label) {
     
     gene.info.all <- read.delim(
       file = paste0(path.general, "Homo_sapiens.gene_info.20251028"),
       sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
     )
-    
     gene.info <- gene.info.all[gene.info.all$Symbol_from_nomenclature_authority != "-", ]
     gene.info.abr <- dplyr::select(gene.info, Symbol, description)
     
@@ -1144,28 +1174,33 @@ if(1) {
     
     df <- df %>%
       dplyr::mutate(
-        group = dplyr::case_when(
-          stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)") ~ "01 BRAF sig",
-          stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|PIK3CA|ERBB2)$")     ~ "02 EGFR sig",
-          stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$") ~ "03 ferropt",
-          stringr::str_detect(Loading, "^MDM[24]$")                                  ~ "04 MDM2.MDM4",
-          stringr::str_detect(Loading, "^ATP5")                                      ~ "05 ATP5",
-          stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                         ~ "06 dasa targets",
-          stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                ~ "07 BCL2+",
-          stringr::str_detect(Loading, "^MYC(|N|L)")                                 ~ "08 MYC.",
-          stringr::str_detect(Loading, "^(GRB2|CRKL)$")                              ~ "09 SRC-related",
-          stringr::str_detect(Loading, "^TP53$")                                     ~ "10 TP53",
-          stringr::str_detect(Loading, "^MED12$")                                    ~ "11 MED12",
-          TRUE ~ NA_character_
+        Group = dplyr::case_when(
+          stringr::str_detect(Loading, "^(BRAF|MITF|MAPK1|SOX9|SOX10|PEA15|DUSP4)\\b") ~ "BRAF Signalling",
+          stringr::str_detect(Loading, "^(EGFR|KLF5|STX4|GRHL2|ERBB2)$")               ~ "EGFR Signalling",
+          stringr::str_detect(Loading, "^(GPX4|SEPSECS|PSTK|EEFSEO|SEPHS2|SECISBP2)$") ~ "Ferroptosis",
+          # stringr::str_detect(Loading, "^MDM[24]$")                                  ~ "04 MDM2.MDM4",
+          # stringr::str_detect(Loading, "^ATP5")                                      ~ "05 ATP5",
+          # stringr::str_detect(Loading, "^(ABL|SRC|LCK|LYN)")                         ~ "06 dasa targets",
+          # stringr::str_detect(Loading, "^(BCL2|BCL2L1|BCL2L2|MCL1)$")                ~ "07 BCL2+",
+          # stringr::str_detect(Loading, "^MYC(|N|L)")                                 ~ "08 MYC.",
+          # stringr::str_detect(Loading, "^(GRB2|CRKL)$")                              ~ "09 SRC-related",
+          # stringr::str_detect(Loading, "^TP53$")                                     ~ "10 TP53",
+          stringr::str_detect(Loading, "^(MED12)$")
+          ~ "MED12", # MED12
+          # ~ "CDK8 Kinase Module", # MED12|MED13|CDK8|CCNC
+          # ~ "Wnt/B-catenin Sig", # MED12|MED13|CDK8|CCNC|CTNNB1|APC|AXIN1|TCF7L2
+          # ~ "Super-Enhancer Axis", # MED12|MED13|CDK8|CCNC|MED1|BRD4|CDK9|CCNT1
+          TRUE ~ "Other"
         ),
         group.atp5        = dplyr::if_else(stringr::str_detect(Loading, "^ATP5"), "05 ATP5", NA_character_),
-        group.na          = dplyr::if_else(is.na(group), 1L, 0L),
+        group.na          = dplyr::if_else(is.na(Group), 1L, 0L),
         group.atp5.na     = dplyr::if_else(is.na(group.atp5), 1L, 0L),
-        label.not.na      = dplyr::if_else(!is.na(group), Loading, NA_character_),
+        label.not.na      = dplyr::if_else(!is.na(Group), Loading, NA_character_),
         label.not.na.atp5 = dplyr::if_else(!is.na(group.atp5), Loading, NA_character_)
       ) %>%
       dplyr::arrange(dplyr::desc(group.na))
     
+    ## %NA using RNAi matrix
     percent.nas <- as.data.frame(colMeans(is.na(RNAi_mat)) * 100)
     names(percent.nas) <- "percent.nas"
     percent.nas <- tibble::rownames_to_column(percent.nas, var = "Loading")
@@ -1174,45 +1209,75 @@ if(1) {
     df
   }
   
-  ## annotate X- and Y- loadings based on actual sources
+  ## Annotate X- and Y- loadings based on actual sources
   X_plot <- if (X_source == "CTRP") annotate_ctrp(X_loadings, "X") else annotate_rnai(X_loadings, "X")
   Y_plot <- if (Y_source == "CTRP") annotate_ctrp(Y_loadings, "Y") else annotate_rnai(Y_loadings, "Y")
   
   ## Plotting colors (always plot both sides)
-  my_colors <- c("#F8766D","#DE8C00","#B79F00","#00BA38","#00BF7D",
-                 "#00BFC4","#00B4F0","#619CFF","hotpink","purple","cyan")
+  group_colors <- c(
+    "BRAF Signalling"        = "#F8766D",
+    "BRAF & MEK\nInhibitors" = "#F8766D",
+    "EGFR Signalling"        = "#DE8C00",
+    "EGFR & HER2\nInhibitors"= "#DE8C00",
+    "Ferroptosis"            = "#B79F00",
+    "Ferroptosis\nInducers"  = "#B79F00",
+    "MED12"                  = "#00BA38",
+    "Other"                  = "grey80"
+  )
   
   plot_loadings_side <- function(df, source_label, color_col, label_col) {
     
-    comp_cols <- grep("comp", names(df), value = TRUE)
+    df <- df %>%
+      dplyr::mutate(
+        label_flag = dplyr::if_else(
+          is.na(.data[[color_col]]) | .data[[color_col]] == "Other",
+          "Unlabeled",
+          "Labeled"
+        )
+      ) %>%
+      dplyr::arrange(desc(.data[[color_col]] == "Other" | is.na(.data[[color_col]])))
+    
+    comp_cols <- grep("^comp\\d+$", names(df), value = TRUE)
     if (length(comp_cols) < 2) return(invisible(NULL))
     
     for (i in 2:length(comp_cols)) {
-      
       comp1 <- "comp1"
       comp2 <- paste0("comp", i)
       
       p <- ggplot(
         df,
-        aes_string(x = comp1, y = comp2, color = color_col)
+        aes_string(
+          x     = comp1,
+          y     = comp2,
+          color = color_col,
+          alpha = "label_flag"
+        )
       ) +
         geom_point(size = 2.5) +
         
         geom_text_repel(
-          data = df %>% dplyr::filter(!is.na(.data[[color_col]])),
+          data = df %>% dplyr::filter(label_flag == "Labeled"),
           aes_string(label = label_col),
           size = 2
         ) +
         
+        scale_alpha_manual(
+          values = c(Labeled = 1, Unlabeled = 0.2),
+          guide  = "none"
+        ) +
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", size = 0.5) +
-        scale_color_manual(values = my_colors, na.value = "grey80") +
+        scale_color_manual(
+          values = group_colors,
+          na.value = "grey80",
+          breaks = c(names(group_colors)[names(group_colors) != "Other"], "Other")
+        ) +
         labs(title = paste0(mode_label, " | ", source_label, " loadings: ", comp1, " vs ", comp2)) +
         theme_bw(base_size = 10)
       
       ggsave(
         filename = paste0(
-          path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, ".pdf"
+          path.plots, "Plot_", file_tag, "_", source_label, ".loadings_", comp1, "vs", comp2, Special_string, ".pdf"
         ),
         plot = p, width = 6, height = 4, units = "in", device = cairo_pdf
       )
@@ -1220,15 +1285,15 @@ if(1) {
   }
   
   if (X_source == "CTRP") {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "Group", "Loading")
   } else {
-    plot_loadings_side(X_plot, paste0("X.", X_source), "group", "Loading")
+    plot_loadings_side(X_plot, paste0("X.", X_source), "Group", "Loading")
   }
   
   if (Y_source == "CTRP") {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "Group", "Loading")
   } else {
-    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "group", "Loading")
+    plot_loadings_side(Y_plot, paste0("Y.", Y_source), "Group", "Loading")
   }
 }
 
@@ -1411,7 +1476,6 @@ if(1) {
   plot_scores_boxplot(y.variates.plot, paste0("Y.", Y_source))
   
 }
-
 ##### rCCA: CRISPR & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
@@ -3748,7 +3812,8 @@ if(1){
       segment.color = "grey50"
     ) +
     scale_color_manual(
-      values = c("RNAi" = "#7a1515", "Neutral" = "#BDBDBD", "CRISPR" = "#1a3a6b"),
+      # values = c("RNAi" = "#7a1515", "Neutral" = "#BDBDBD", "CRISPR" = "#1a3a6b"),
+      values = c("RNAi" = "#5E2F80", "Neutral" = "#BDBDBD", "CRISPR" = "#D47D37"),
       name   = "Bias"
     ) +
     labs(
@@ -3898,7 +3963,7 @@ p <- ggplot2::ggplot(
 print(p)
 
 ggsave(
-  filename = paste0(path.plots, "MaxLoadingsDF_", out_tag, "_GSEA.pdf"),
+  filename = paste0(path.plots, "MaxLoadingsDF_", out_tag, "_GSEA_V2.pdf"),
   plot = p, width = 13, height = 9, units = "in", device = cairo_pdf
 )
 ##### GSEA #####
@@ -4116,12 +4181,18 @@ data_df$Category <- factor(
 # Color scale
 # Stepwise gradient: endpoints are darkest, middle is lightest.
 # Steps are evenly spaced (rank-based), ignoring actual p-value distances.
-#   RNAi arm  (signed_logp < 0): dark red #7a1515 → light red  #f0a0a0
-#   CRISPR arm (signed_logp > 0): light blue #93b8de → dark blue #1a3a6b
-#   non-significant (p > 0.05) : gray #888780
+# non-significant (p > 0.05) : gray #888780
 #
 # Within each arm, categories are ranked by |signed_logp| (most extreme = rank 1)
 # and t_val = (rank - 1) / (n - 1) so rank 1 → t=0 (darkest), rank n → t=1 (lightest).
+#
+# ── OPTION A: Dark Red / Blue ──────────────────────────────────────────────────
+#   RNAi arm   (signed_logp < 0): dark red  #7a1515 → light red  #f0a0a0
+#   CRISPR arm (signed_logp > 0): light blue #93b8de → dark blue #1a3a6b
+#
+# ── OPTION B: Dark Purple / Dark Orange ────────────────────────────────────────
+#   RNAi arm   (signed_logp < 0): dark purple #5E2F80 → light purple #c4a0e0
+#   CRISPR arm (signed_logp > 0): light orange #f0c080 → dark orange #D47D37
 
 hex_interp <- function(t, r1, g1, b1, r2, g2, b2) {
   sprintf("#%02X%02X%02X",
@@ -4147,18 +4218,35 @@ color_map <- ks_results %>%
     dot_color = dplyr::case_when(
       # Non-significant → gray
       !sig ~ "#888780",
-      # RNAi arm: rank 1 = darkest red #7a1515, rank n = lightest red #f0a0a0
+      
+      # ── OPTION A: Dark Red / Blue (comment out to disable) ──────────────────
+      # # RNAi arm: rank 1 = darkest red #7a1515, rank n = lightest red #f0a0a0
+      # signed_logp < 0 ~ hex_interp(
+      #   (rank_neg - 1) / pmax(n_neg - 1, 1),
+      #   0x7a, 0x15, 0x15,   # dark red
+      #   0xf0, 0xa0, 0xa0    # light red
+      # ),
+      # # CRISPR arm: rank 1 = darkest blue #1a3a6b, rank n = lightest blue #93b8de
+      # signed_logp > 0 ~ hex_interp(
+      #   (rank_pos - 1) / pmax(n_pos - 1, 1),
+      #   0x1a, 0x3a, 0x6b,   # dark blue
+      #   0x93, 0xb8, 0xde    # light blue
+      # ),
+      
+      # ── OPTION B: Dark Purple / Dark Orange (comment out to disable) ─────────
+      # RNAi arm: rank 1 = darkest purple #5E2F80, rank n = lightest purple #c4a0e0
       signed_logp < 0 ~ hex_interp(
         (rank_neg - 1) / pmax(n_neg - 1, 1),
-        0x7a, 0x15, 0x15,   # dark red
-        0xf0, 0xa0, 0xa0    # light red
+        0x5E, 0x2F, 0x80,   # dark purple
+        0xc4, 0xa0, 0xe0    # light purple
       ),
-      # CRISPR arm: rank 1 = darkest blue #1a3a6b, rank n = lightest blue #93b8de
+      # CRISPR arm: rank 1 = darkest orange #D47D37, rank n = lightest orange #f0c080
       signed_logp > 0 ~ hex_interp(
         (rank_pos - 1) / pmax(n_pos - 1, 1),
-        0x1a, 0x3a, 0x6b,   # dark blue
-        0x93, 0xb8, 0xde    # light blue
+        0xD4, 0x7D, 0x37,   # dark orange
+        0xf0, 0xc0, 0x80    # light orange
       ),
+      
       TRUE ~ "#888780"
     )
   )
@@ -4260,7 +4348,7 @@ ggplot2::ggsave(
   filename = paste0(
     path.plots,
     "GSEA_sq_",
-    gsub(".txt", ".pdf", basename(path.input))
+    gsub(".txt", "V2.pdf", basename(path.input))
   ),
   plot   = plt,
   width  = 6,
