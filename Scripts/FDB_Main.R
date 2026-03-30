@@ -5927,8 +5927,7 @@ if (1) {
   
   ## Save the results
   saveRDS(mp, 
-          file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", 
-                        soft_power, "_MinModuleSize_", min_module_sz, ".rds"))
+          file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".rds"))
   
   ## Extract preservation statistics
   ref <- 1  # CRISPR
@@ -5944,7 +5943,7 @@ if (1) {
   
   write.table(
     x = stats,
-    file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".txt"),
+    file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".txt"),
     row.names = T,
     sep = "\t",
     quote = F
@@ -5998,7 +5997,7 @@ if (1) {
     theme_bw() +
     theme(legend.position = "none")
   
-  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_preservation, width = 8, height = 7)
+  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".png"), p_preservation, width = 8, height = 7)
   
   ## Plot 2: Median rank vs Zsummary
   p_rank <- ggplot(plotData, aes(x = medianRank, y = Zsummary, color = module, label = module)) +
@@ -6018,7 +6017,7 @@ if (1) {
     theme_bw() +
     theme(legend.position = "none")
   
-  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, ".png"), p_rank, width = 8, height = 7)
+  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".png"), p_rank, width = 8, height = 7)
 
 }
 
@@ -7009,7 +7008,7 @@ path.mel     <- paste0(path.wd, "DataSets/Melanoma/")
 path.pls     <- paste0(path.wd, "DataSets/PLS/")
 
 #### Get Hallmark EMT gene set from MSigDB
-if (1) {
+if (0) {
 
   ## Get Hallmark EMT gene set
   hallmark_emt <- msigdbr::msigdbr(
@@ -7631,18 +7630,6 @@ if (1) {
 }
 
 ##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
-#
-# This implements the Drug Potentiality metric from the paper, substituting
-# PLS-C (canonical mode, X=CRISPR, Y=CTRP) in place of rCCA.
-#
-# Steps:
-#   1. Load PLS-C X-loadings (CRISPR side) and PCA loadings
-#   2. Summarize each gene by its max absolute loading across top 10 components
-#   3. Fit each summarized loading vector to a log-normal distribution
-#   4. Convert each gene's summarized loading to a quantile (CDF value)
-#   5. Drug Potentiality Score = CCA_quantile - PCA_quantile
-#   6. Magnitude = sqrt(summarized_PLS^2 + summarized_PCA^2)
-#   7. Plot: x = magnitude, y = potentiality score, colored by score (rainforest/desert)
 
 ### Set OS ###
 OS <- "Mac" # Linux or Mac
@@ -7663,528 +7650,7 @@ path.plots   <- paste0(path.wd, "Plots/")
 path.dp      <- paste0(path.wd, "DataSets/DrugPotentiality/")
 
 ## Method switch: "PLS" or "rCCA"
-method   <- "rCCA"  # "PLS" or "rCCA"
-
-## PLS parameters (used when method == "PLS")
-pls_mode <- "canonical"
-X_source <- "CTRP"
-Y_source <- "CRISPR"
-
-## rCCA parameters (used when method == "rCCA")
-rcca_mode      <- "shrinkage"  # "shrinkage" or "ridge"
-lambda1_manual <- 0.20
-lambda2_manual <- 0.10
-
-## Build file_tag, path, and component column prefix based on method
-if (method == "PLS") {
-  ## PLS: X = CRISPR (genes), Y = CTRP (drugs) -> gene co-signal is in _X.loadings.txt
-  file_tag    <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source)
-  path_drug   <- path.pls
-  gene_side   <- "X"    # which loadings file has genes
-  comp_prefix <- "comp" # PLS columns: comp1, comp2, ...
-} else {
-  ## rCCA: X = CTRP (drugs), Y = CRISPR (genes) -> gene co-signal is in _Y.loadings.txt
-  if (rcca_mode == "shrinkage") {
-    file_tag <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source)
-  } else {
-    file_tag <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
-                       "_lambda2.", format(lambda2_manual, digits = 3),
-                       "_X.", X_source, "_Y.", Y_source)
-  }
-  path_drug   <- path.rcca
-  gene_side   <- "Y"   # rCCA X = CTRP drugs, so genes are on the Y side
-  comp_prefix <- "X"   # rCCA loading columns are always named X1, X2, ...
-}
-
-## Number of components to summarize over (paper uses top 10)
-n_comp <- 10
-
-### Step 1: Load drug-gene co-embedding loadings (PLS-C or rCCA)
-if (1) {
-  
-  drug_loadings_raw <- read.delim(
-    file = paste0(path_drug, file_tag, "_", gene_side, ".loadings.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
-  ) %>%
-    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
-  
-  ## Column names differ: PLS uses comp1/comp2, rCCA uses X1/X2
-  comp_cols_drug <- paste0(comp_prefix, 1:n_comp)
-  comp_cols_drug <- comp_cols_drug[comp_cols_drug %in% names(drug_loadings_raw)]
-  
-  drug_loadings_sub <- drug_loadings_raw %>%
-    dplyr::select(Loading, all_of(comp_cols_drug))
-  
-  cat(method, gene_side, "-loadings (gene side):", nrow(drug_loadings_sub), "genes x", length(comp_cols_drug), "components\n")
-}
-
-### Step 2: Load PCA loadings (gene-only signal)
-if (1) {
-  
-  ## These are the loadings from PCA_from_file() run on CRISPR_common
-  ## File name follows the pattern: <input>_prcomp_loadings.txt
-  PCA_loadings <- read.delim(
-    file = paste0(path.pca, "CRISPR_common_PCA_prcomp_loadings.txt"),
-    sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
-  ) %>%
-    dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
-  
-  ## Keep only PC1:PC{n_comp}
-  comp_cols_pca <- paste0("PC", 1:n_comp)
-  comp_cols_pca <- comp_cols_pca[comp_cols_pca %in% names(PCA_loadings)]
-  
-  PCA_loadings_sub <- PCA_loadings %>%
-    dplyr::select(Loading, all_of(comp_cols_pca))
-  
-  cat("PCA loadings: ", nrow(PCA_loadings_sub), "genes x", length(comp_cols_pca), "components\n")
-}
-
-### Step 3: Summarize — max absolute loading per gene across top 10 components
-if (1) {
-  
-  summarize_max_abs <- function(df, gene_col, comp_cols, value_suffix) {
-    df %>%
-      tidyr::pivot_longer(
-        cols      = all_of(comp_cols),
-        names_to  = "component",
-        values_to = "loading"
-      ) %>%
-      dplyr::mutate(abs_loading = abs(loading)) %>%
-      dplyr::group_by(.data[[gene_col]]) %>%
-      dplyr::slice_max(abs_loading, n = 1, with_ties = FALSE) %>%
-      dplyr::ungroup() %>%
-      dplyr::rename(
-        !!paste0("component_", value_suffix) := component,
-        !!paste0("loading_", value_suffix)    := loading,
-        !!paste0("abs_loading_", value_suffix) := abs_loading
-      )
-  }
-  
-  drug_max <- summarize_max_abs(drug_loadings_sub, "Loading", comp_cols_drug, "drug")
-  PCA_max  <- summarize_max_abs(PCA_loadings_sub,  "Loading", comp_cols_pca,  "PCA")
-  
-  cat("Genes summarized —", method, ":", nrow(drug_max), " PCA:", nrow(PCA_max), "\n")
-}
-
-### Step 4: Fit log-normal distribution and convert to quantiles
-if (1) {
-  
-  ## The paper fits each vector (PLS summarized loadings, PCA summarized loadings)
-  ## separately to a log-normal distribution and uses the fitted CDF to get quantiles.
-  
-  fit_lognormal_quantile <- function(x, label = "") {
-    
-    x_pos <- x[x > 0 & !is.na(x)]
-    
-    ## Fit log-normal (and competitors) to check AIC
-    fit_ln  <- fitdistrplus::fitdist(x_pos, "lnorm")
-    fit_wb  <- fitdistrplus::fitdist(x_pos, "weibull")
-    fit_gm  <- fitdistrplus::fitdist(x_pos, "gamma")
-    
-    aic_table <- data.frame(
-      distribution = c("lognormal", "weibull", "gamma"),
-      AIC          = c(fit_ln$aic, fit_wb$aic, fit_gm$aic)
-    )
-    cat("\nAIC comparison for", label, "loadings:\n")
-    print(aic_table)
-    cat("Best fit:", aic_table$distribution[which.min(aic_table$AIC)], "\n")
-    
-    ## Use log-normal as per the paper regardless (paper states lognormal best)
-    meanlog <- fit_ln$estimate["meanlog"]
-    sdlog   <- fit_ln$estimate["sdlog"]
-    
-    ## Convert each gene's abs loading to a quantile [0,1] via fitted log-normal CDF
-    ## Genes with abs_loading = 0 get quantile = 0
-    q <- plnorm(x, meanlog = meanlog, sdlog = sdlog)
-    q[is.na(x)] <- NA
-    
-    list(
-      quantile = q,
-      fit      = fit_ln,
-      aic_table = aic_table
-    )
-  }
-  
-  drug_fit <- fit_lognormal_quantile(drug_max$abs_loading_drug, label = method)
-  PCA_fit  <- fit_lognormal_quantile(PCA_max$abs_loading_PCA,  label = "PCA")
-  
-  drug_max$quantile_drug <- drug_fit$quantile
-  PCA_max$quantile_PCA   <- PCA_fit$quantile
-}
-
-### Step 5: Merge and compute Drug Potentiality Score
-if (1) {
-  
-  DP <- merge(
-    drug_max %>% dplyr::select(Loading, abs_loading_drug, quantile_drug, component_drug),
-    PCA_max  %>% dplyr::select(Loading, abs_loading_PCA,  quantile_PCA,  component_PCA),
-    by = "Loading"
-  )
-  
-  DP <- DP %>%
-    dplyr::mutate(
-      ## Drug Potentiality Score: drug co-signal quantile minus PCA quantile
-      drug_potentiality = quantile_drug - quantile_PCA,
-      
-      ## Magnitude: Euclidean distance to origin using summarized abs loadings
-      magnitude = sqrt(abs_loading_drug^2 + abs_loading_PCA^2),
-      
-      ## Categorical label
-      category = dplyr::case_when(
-        drug_potentiality >  0.5  ~ "Drug Rainforest",
-        drug_potentiality < -0.5  ~ "Drug Desert",
-        TRUE                       ~ "Neutral"
-      )
-    ) %>%
-    dplyr::arrange(desc(drug_potentiality))
-  
-  cat("\nDrug Potentiality Score summary:\n")
-  print(summary(DP$drug_potentiality))
-  cat("\nCategory counts:\n")
-  print(table(DP$category))
-}
-
-### Step 6: Add gene annotations for labeling
-if (1) {
-  
-  ## Auto: top 10 and bottom 10 by drug potentiality score
-  top10    <- DP %>% dplyr::arrange(desc(drug_potentiality)) %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
-  bottom10 <- DP %>% dplyr::arrange(drug_potentiality)      %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
-  
-  ## Manual curation list (from paper figure + your existing annotation groups)
-  genes_manual <- c(
-    ## Neutral examples (known drug targets at zero line)
-    "BRAF", "EGFR", "PIK3CA", "ERBB2",
-    ## Desert examples
-    "KRAS", "MYC", "MYCN", "PTEN", "TP53",
-    ## Your existing annotation groups
-    "GPX4", "MDM2", "MDM4", "SOX10", "DUSP4",
-    "BCL2", "BCL2L1", "MCL1", "MED12",
-    "SRC", "ABL1", "LCK", "LYN",
-    "MAPK1", "MITF", "SOX9", "PEA15"
-  )
-  
-  all_labels <- unique(c(top10, bottom10, genes_manual))
-  DP$label   <- ifelse(DP$Loading %in% all_labels, DP$Loading, NA_character_)
-  
-  ## Tag label source — drives separate text colors in the plot
-  DP$label_group <- dplyr::case_when(
-    DP$Loading %in% top10    ~ "top10",
-    DP$Loading %in% bottom10 ~ "bottom10",
-    !is.na(DP$label)         ~ "manual",
-    TRUE                     ~ NA_character_
-  )
-}
-
-### Step 7: Save output table
-if (1) {
-  
-  write.table(
-    x         = DP,
-    file      = paste0(path.dp, "DrugPotentiality_", file_tag, ".txt"),
-    sep       = "\t", quote = FALSE, row.names = FALSE
-  )
-  cat("Saved drug potentiality table.\n")
-}
-
-### Step 8: Plot — replicating Figure 4B from the paper
-if (1) {
-  
-  ## Color gradient: Drug Desert (red/orange) → Neutral (white/purple) → Rainforest (green)
-  ## Use a continuous scale keyed to drug_potentiality score
-  
-  ## Percentile cutoffs for band boundaries and dashed lines
-  cutoffs <- quantile(DP$drug_potentiality, probs = c(0.01, 0.05, 0.10, 0.50, 0.90, 0.95, 0.99))
-  cat("\nPercentile cutoffs:\n"); print(round(cutoffs, 4))
-  
-  ## Assign each gene to a discrete color band.
-  ## Everything between 50th desert and 50th forest is one single neutral color.
-  DP <- DP %>%
-    dplyr::mutate(
-      color_band = dplyr::case_when(
-        drug_potentiality >= cutoffs["99%"] ~ "01_forest_1st",
-        drug_potentiality >= cutoffs["95%"] ~ "02_forest_5th",
-        drug_potentiality >= cutoffs["90%"] ~ "03_forest_10th",
-        drug_potentiality >= cutoffs["50%"] ~ "04_neutral",   # 50th forest to top of rainforest bands
-        drug_potentiality >= cutoffs["10%"] ~ "04_neutral",   # 10th desert to 50th forest: neutral
-        drug_potentiality >= cutoffs["5%"]  ~ "05_desert_10th",
-        drug_potentiality >= cutoffs["1%"]  ~ "06_desert_5th",
-        TRUE                                ~ "07_desert_1st"
-      )
-    )
-  
-  ## 7 discrete colors; neutral spans 50th desert to 50th forest (one color)
-  band_colors <- c(
-    "01_forest_1st"  = "#004d00",
-    "02_forest_5th"  = "#1a7a1a",
-    "03_forest_10th" = "#4caf50",
-    "04_neutral"     = "#9b72b0",
-    "05_desert_10th" = "#f5c542",
-    "06_desert_5th"  = "#e07b00",
-    "07_desert_1st"  = "#8B3a00"
-  )
-  
-  ## Map band names to numeric midpoints for gradient legend
-  band_order     <- c("01_forest_1st","02_forest_5th","03_forest_10th",
-                      "04_neutral","05_desert_10th","06_desert_5th","07_desert_1st")
-  band_midpoints <- c(0.995, 0.97, 0.925, 0.0, -0.55, -0.80, -0.995)
-  
-  DP <- DP %>%
-    dplyr::mutate(color_band_num = band_midpoints[match(color_band, band_order)])
-  
-  ## Order so labeled points plot on top
-  DP_plot <- DP %>%
-    dplyr::arrange(!is.na(label))
-  
-  p_dp <- ggplot(DP_plot, aes(x = magnitude, y = drug_potentiality)) +
-    
-    ## Background points — colored discretely by band
-    geom_point(aes(color = color_band_num), size = 1.2, alpha = 0.7) +
-    
-    ## Continuous gradient scale renders as a smooth gradient bar in the legend
-    ## but points are snapped to 7 discrete values so they appear as bands
-    scale_color_gradientn(
-      colors   = c("#8B3a00", "#e07b00", "#f5c542", "#9b72b0", "#9b72b0", "#4caf50", "#1a7a1a", "#004d00"),
-      values   = scales::rescale(c(-1, -0.15, -0.10, -0.001, 0.001, 0.90, 0.97, 1)),
-      limits   = c(-1, 1),
-      name     = paste0("Drug Potentiality"),
-      guide    = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
-    ) +
-    
-    ## Reference horizontal lines (percentile thresholds)
-    geom_hline(yintercept = cutoffs["50%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["10%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["5%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["1%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["90%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["95%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["99%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = 0,               linetype = "solid",  color = "black",  linewidth = 0.5) +
-    
-    ## Gene labels — three layers so top10/bottom10 get distinct text colors
-    ## Manual curated genes: boxed label like paper figure
-    geom_label_repel(
-      data           = DP_plot %>% dplyr::filter(label_group == "manual"),
-      aes(label      = label),
-      size           = 3.2,
-      color          = "black",
-      fontface       = "bold",
-      fill           = "white",
-      label.size     = 0.3,
-      label.padding  = unit(0.15, "lines"),
-      label.r        = unit(0.05, "lines"),
-      box.padding    = 0.4,
-      point.padding  = 0.2,
-      max.overlaps   = 30,
-      segment.size   = 0.3,
-      segment.color  = "grey50"
-    ) +
-    
-    ## Top 10 rainforest genes: bold dark green
-    geom_text_repel(
-      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
-      aes(label     = label),
-      size          = 2.8,
-      color         = "#004d00",
-      fontface      = "bold",
-      box.padding   = 0.5,
-      point.padding = 0.3,
-      max.overlaps  = 30,
-      segment.size  = 0.4,
-      segment.color = "#004d00"
-    ) +
-    
-    ## Bottom 10 desert genes: bold dark red
-    geom_text_repel(
-      data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
-      aes(label     = label),
-      size          = 2.8,
-      color         = "#8B0000",
-      fontface      = "bold",
-      box.padding   = 0.5,
-      point.padding = 0.3,
-      max.overlaps  = 30,
-      segment.size  = 0.4,
-      segment.color = "#8B0000"
-    ) +
-    
-    ## Axis annotations matching paper style
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["99%"] + 0.03,
-             label = "1st Forest",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["95%"] + 0.03,
-             label = "5th Forest",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["90%"] + 0.03,
-             label = "10th Forest", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] + 0.03,
-             label = "50th Forest", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] - 0.06,
-             label = "50th Desert", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["10%"] - 0.06,
-             label = "10th Desert", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["5%"] - 0.06,
-             label = "5th Desert",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["1%"] - 0.06,
-             label = "1st Desert",  size = 2.5, color = "grey30", hjust = 1) +
-    
-    ## Side label arrows (Drug Rainforest / Drug Desert)
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y =  0.7,
-             label = "Drug\nRainforest", size = 3, color = "#004d00",
-             fontface = "italic", hjust = 0.5) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y = -0.7,
-             label = "Drug\nDesert", size = 3, color = "#8B0000",
-             fontface = "italic", hjust = 0.5) +
-    
-    labs(
-      x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
-      y     = paste0(method, " Quantile \u2212 PCA Quantile\n(Drug Potentiality Score)"),
-      title = paste0("Drug Potentiality Score\n(", file_tag, ")")
-    ) +
-    scale_x_continuous(expand = expansion(mult = c(0.01, 0.12))) +
-    theme_classic(base_size = 11) +
-    theme(
-      legend.position  = "right",
-      legend.key.height = unit(1.5, "cm"),
-      plot.title       = element_text(size = 10)
-    )
-  
-  print(p_dp)
-  
-  ggsave(
-    filename = paste0(path.plots, "DrugPotentiality_", method, "_", file_tag, ".pdf"),
-    plot     = p_dp,
-    width    = 8,
-    height   = 7,
-    units    = "in",
-    device   = cairo_pdf
-  )
-  
-  cat("Plot saved.\n")
-}
-
-### Step 9: Top/Bottom gene tables for inspection
-if (1) {
-  
-  cat("\n--- Top 30 Drug RAINFOREST genes (highest potentiality) ---\n")
-  print(DP %>% dplyr::arrange(desc(drug_potentiality)) %>%
-          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
-          head(30))
-  
-  cat("\n--- Top 30 Drug DESERT genes (lowest potentiality) ---\n")
-  print(DP %>% dplyr::arrange(drug_potentiality) %>%
-          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
-          head(30))
-  
-  cat("\n--- Top 30 HIGH MAGNITUDE genes near zero potentiality (neutrally targeted) ---\n")
-  print(DP %>%
-          dplyr::filter(abs(drug_potentiality) < 0.05) %>%
-          dplyr::arrange(desc(magnitude)) %>%
-          dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
-          head(30))
-}
-
-### Step 10: Plot fitted log-normal distributions (Figure 4A style)
-if (1) {
-  
-  ## Uses drug_max and PCA_max already in memory from Steps 3-4
-  fit_and_plot <- function(abs_vals, label, dist_color, cdf_color) {
-    
-    x_pos <- abs_vals[abs_vals > 0 & !is.na(abs_vals)]
-    fit   <- fitdistrplus::fitdist(x_pos, "lnorm")
-    ml    <- fit$estimate["meanlog"]
-    sl    <- fit$estimate["sdlog"]
-    
-    x_grid <- seq(0, max(x_pos) * 1.1, length.out = 500)
-    
-    df_dist <- data.frame(x = x_grid, y = dlnorm(x_grid, meanlog = ml, sdlog = sl))
-    df_cdf  <- data.frame(x = x_grid, y = plnorm(x_grid, meanlog = ml, sdlog = sl))
-    
-    ## Example points at 10th and 90th percentile of the loading values
-    ex_low  <- quantile(x_pos, 0.05)
-    ex_neu <- quantile(x_pos, 0.5)
-    ex_high <- quantile(x_pos, 0.95)
-    
-    example_pts <- data.frame(
-      x     = c(ex_low, ex_neu, ex_high),
-      y_cdf = plnorm(c(ex_low, ex_neu, ex_high), meanlog = ml, sdlog = sl),
-      lab   = c(paste0("Low ", label), paste0("Neutral ", label), paste0("High ", label)),
-      col   = c("#8B3a00", "#9b72b0", "#004d00")
-    )
-    
-    p_dist <- ggplot() +
-      geom_histogram(
-        data = data.frame(x = x_pos), aes(x = x, y = after_stat(density)),
-        bins = 60, fill = scales::alpha(dist_color, 0.4), color = scales::alpha(dist_color, 0.6), linewidth = 0.2
-      ) +
-      geom_line(data = df_dist, aes(x = x, y = y), color = dist_color, linewidth = 0.8) +
-      labs(x = "Maximal Absolute Loading", y = "Density",
-           title = paste0("Distribution of\n", label, " Maximal Loading")) +
-      theme_classic(base_size = 10) +
-      theme(plot.title = element_text(face = "italic", size = 9, hjust = 0.5))
-    
-    p_cdf <- ggplot() +
-      geom_line(data = df_cdf, aes(x = x, y = y), color = cdf_color, linewidth = 0.8) +
-      geom_segment(data = example_pts,
-                   aes(x = x, xend = x, y = 0, yend = y_cdf),
-                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-      geom_segment(data = example_pts,
-                   aes(x = 0, xend = x, y = y_cdf, yend = y_cdf),
-                   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-      geom_point(data = example_pts, aes(x = x, y = y_cdf), size = 3, color = example_pts$col) +
-      geom_text(data = example_pts, aes(x = x, y = y_cdf, label = lab),
-                hjust = -0.15, size = 3, color = example_pts$col, fontface = "italic") +
-      scale_x_continuous(expand = expansion(mult = c(0.02, 0.25))) +
-      labs(x = "Maximal Absolute Loading", y = "F(x)",
-           title = "Fitted Log Normal\nCumulative Distribution") +
-      theme_classic(base_size = 10) +
-      theme(plot.title = element_text(face = "italic", size = 9, hjust = 0.5))
-    
-    list(p_dist = p_dist, p_cdf = p_cdf)
-  }
-  
-  panels_drug <- fit_and_plot(drug_max$abs_loading_drug, label = method,  dist_color = "#2166ac", cdf_color = "#2166ac")
-  panels_pca  <- fit_and_plot(PCA_max$abs_loading_PCA,   label = "PCA",   dist_color = "#d95f02", cdf_color = "#d95f02")
-  
-  library(patchwork)
-  
-  p_4a <- (panels_drug$p_dist | panels_drug$p_cdf) /
-    (panels_pca$p_dist  | panels_pca$p_cdf) +
-    patchwork::plot_annotation(title = paste0("Log-Normal Fitting: ", method, " vs PCA Maximal Loadings"))
-  
-  print(p_4a)
-  
-  ggsave(
-    filename = paste0(path.plots, "FitDistribution_", method, "_vs_PCA.pdf"),
-    plot     = p_4a, width = 8, height = 6, units = "in", device = cairo_pdf
-  )
-  
-  cat("Distribution plot saved.\n")
-}
-
-
-
-
-##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
-
-### Set OS ###
-OS <- "Mac" # Linux or Mac
-
-if (OS == "Mac") {
-  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
-} else {
-  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
-}
-
-## Set paths
-path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
-path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
-path.pls     <- paste0(path.wd, "DataSets/PLS/")
-path.rcca    <- paste0(path.wd, "DataSets/rCCA/")
-path.pca     <- paste0(path.wd, "DataSets/PCA/")
-path.plots   <- paste0(path.wd, "Plots/")
-path.dp      <- paste0(path.wd, "DataSets/DrugPotentiality/")
-
-## Method switch: "PLS" or "rCCA"
-method   <- "rCCA"  # "PLS" or "rCCA"
+method   <- "PLS"  # "PLS" or "rCCA"
 
 ## PLS parameters (used when method == "PLS")
 pls_mode <- "canonical"
@@ -8196,38 +7662,49 @@ rcca_mode      <- "shrinkage"  # "shrinkage" or "ridge"
 lambda1_manual <- 0.20
 lambda2_manual <- 0.10
 
-X_source <- "CTRP"
-Y_source <- "CRISPR"
+X_source <- "CRISPR"
+Y_source <- "CTRP"
 
-## Build file_tag, path, and component column prefix based on method
-if (method == "PLS") {
-  ## PLS: X = CRISPR (genes), Y = CTRP (drugs) -> gene co-signal is in _X.loadings.txt
-  file_tag    <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source)
-  path_drug   <- path.pls
-  gene_side   <- "X"    # which loadings file has genes
-  comp_prefix <- "comp" # PLS columns: comp1, comp2, ...
-} else {
-  ## rCCA: X = CTRP (drugs), Y = CRISPR (genes) -> gene co-signal is in _Y.loadings.txt
-  if (rcca_mode == "shrinkage") {
-    file_tag <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source)
-  } else {
-    file_tag <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
-                       "_lambda2.", format(lambda2_manual, digits = 3),
-                       "_X.", X_source, "_Y.", Y_source)
-  }
-  path_drug   <- path.rcca
-  gene_side   <- "Y"   # rCCA X = CTRP drugs, so genes are on the Y side
-  comp_prefix <- "X"   # rCCA loading columns are always named X1, X2, ...
-}
+## Filtered for all three data sets shared lines? (mirrors PLS script)
+FilteredAll3 <- TRUE # TRUE or FALSE
 
 ## Number of components to summarize over (paper uses top 10)
-n_comp <- 10
+n_comp <- 5
+
+## Build Filtered_Tag (appended to file names, mirrors PLS script)
+Filtered_Tag <- if (FilteredAll3) "_Filtered3" else ""
+
+## Build file_tag, path, and component column prefix based on method
+## Build file_tag (input — matches how PLS/rCCA files were saved, no n_comp)
+## Build output_tag (output — adds n_comp to distinguish results)
+if (method == "PLS") {
+  file_tag    <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source)
+  output_tag  <- paste0("PLS_Mode.", pls_mode, "_X.", X_source, "_Y.", Y_source, "_ncomp", n_comp)
+  path_drug   <- path.pls
+  gene_side   <- "X"
+  comp_prefix <- "comp"
+} else {
+  if (rcca_mode == "shrinkage") {
+    file_tag   <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source)
+    output_tag <- paste0("RCCA_shrinkage_X.", X_source, "_Y.", Y_source, "_ncomp", n_comp)
+  } else {
+    file_tag   <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
+                         "_lambda2.", format(lambda2_manual, digits = 3),
+                         "_X.", X_source, "_Y.", Y_source)
+    output_tag <- paste0("RCCA_ridge_lambda1.", format(lambda1_manual, digits = 3),
+                         "_lambda2.", format(lambda2_manual, digits = 3),
+                         "_X.", X_source, "_Y.", Y_source, "_ncomp", n_comp)
+  }
+  path_drug   <- path.rcca
+  gene_side   <- "Y"
+  comp_prefix <- "X"
+}
 
 ### Step 1: Load drug-gene co-embedding loadings (PLS-C or rCCA)
 if (1) {
   
   drug_loadings_raw <- read.delim(
-    file = paste0(path_drug, file_tag, "_", gene_side, ".loadings.txt"),
+    file = paste0(path_drug, file_tag, Filtered_Tag, "_", gene_side, ".loadings.txt"),
     sep = "\t", stringsAsFactors = FALSE, check.names = FALSE
   ) %>%
     dplyr::mutate(Loading = sub("\\.\\..*$", "", Loading))
@@ -8323,8 +7800,8 @@ if (1) {
     q[is.na(x)] <- NA
     
     list(
-      quantile = q,
-      fit      = fit_ln,
+      quantile  = q,
+      fit       = fit_ln,
       aic_table = aic_table
     )
   }
@@ -8377,15 +7854,14 @@ if (1) {
   
   ## Manual curation list (from paper figure + your existing annotation groups)
   genes_manual <- c(
-    ## Neutral examples (known drug targets at zero line)
-    "BRAF", "EGFR", "PIK3CA", "ERBB2",
-    ## Desert examples
-    "KRAS", "MYC", "MYCN", "PTEN", "TP53",
-    ## Your existing annotation groups
-    "GPX4", "MDM2", "MDM4", "SOX10", "DUSP4",
-    "BCL2", "BCL2L1", "MCL1", "MED12",
-    "SRC", "ABL1", "LCK", "LYN",
-    "MAPK1", "MITF", "SOX9", "PEA15"
+    ## Desert
+    "KRAS", "PTEN", "SOD2",
+    ## Forest
+    "VEGFA", "EPCAM", "ERG",
+    
+    # "NGF", "ITGA5", "ITGA6", "ITGAB4", "ERG", "SOX5", "ELF4", "KDR", "EFG", "TAP1", "ICAM2", "SLAMF1", "CDC42BPA", "NCAM1", "VEGFA", "GABARAP", "VRK2",
+    ## Neutral
+    "PIK3CA", "GPX4", "BRAF"
   )
   
   all_labels <- unique(c(top10, bottom10, genes_manual))
@@ -8393,10 +7869,10 @@ if (1) {
   
   ## Tag label source — drives separate text colors in the plot
   DP$label_group <- dplyr::case_when(
-    DP$Loading %in% top10    ~ "top10",
-    DP$Loading %in% bottom10 ~ "bottom10",
-    !is.na(DP$label)         ~ "manual",
-    TRUE                     ~ NA_character_
+    !is.na(DP$label) & DP$Loading %in% genes_manual ~ "manual",  # manual takes priority
+    DP$Loading %in% top10                            ~ "top10",
+    DP$Loading %in% bottom10                         ~ "bottom10",
+    TRUE                                             ~ NA_character_
   )
 }
 
@@ -8405,7 +7881,7 @@ if (1) {
   
   write.table(
     x         = DP,
-    file      = paste0(path.dp, "DrugPotentiality_", file_tag, ".txt"),
+    file      = paste0(path.dp, "DrugPotentiality_", output_tag, Filtered_Tag, ".txt"),
     sep       = "\t", quote = FALSE, row.names = FALSE
   )
   cat("Saved drug potentiality table.\n")
@@ -8414,44 +7890,48 @@ if (1) {
 ### Step 8: Plot — replicating Figure 4B from the paper
 if (1) {
   
-  ## Color gradient: Drug Desert (red/orange) → Neutral (white/purple) → Rainforest (green)
-  ## Use a continuous scale keyed to drug_potentiality score
-  
-  ## Percentile cutoffs for band boundaries and dashed lines
-  cutoffs <- quantile(DP$drug_potentiality, probs = c(0.01, 0.05, 0.10, 0.50, 0.90, 0.95, 0.99))
+  ## Percentile cutoffs — 25th and 75th define neutral band boundaries
+  ## 10th/90th, 5th/95th, 1st/99th define the forest/desert gradient steps
+  cutoffs <- quantile(DP$drug_potentiality, probs = c(0.01, 0.05, 0.10, 0.25, 0.75, 0.90, 0.95, 0.99))
   cat("\nPercentile cutoffs:\n"); print(round(cutoffs, 4))
   
-  ## Assign each gene to a discrete color band.
-  ## Everything between 50th desert and 50th forest is one single neutral color.
+  ## 9 bands total: 4 forest + 1 neutral (middle 50%) + 4 desert
+  ## Neutral = genes between 25th and 75th percentile of drug_potentiality
+  ## 50th Forest = genes between 75th percentile and 90th percentile
+  ## 50th Desert = genes between 10th percentile and 25th percentile
   DP <- DP %>%
     dplyr::mutate(
       color_band = dplyr::case_when(
-        drug_potentiality >= cutoffs["99%"] ~ "01_forest_1st",
-        drug_potentiality >= cutoffs["95%"] ~ "02_forest_5th",
-        drug_potentiality >= cutoffs["90%"] ~ "03_forest_10th",
-        drug_potentiality >= cutoffs["50%"] ~ "04_neutral",   # 50th forest to top of rainforest bands
-        drug_potentiality >= cutoffs["10%"] ~ "04_neutral",   # 10th desert to 50th forest: neutral
-        drug_potentiality >= cutoffs["5%"]  ~ "05_desert_10th",
-        drug_potentiality >= cutoffs["1%"]  ~ "06_desert_5th",
-        TRUE                                ~ "07_desert_1st"
+        drug_potentiality >= cutoffs["99%"] ~ "01_forest_1st",   # top 1%       — darkest green
+        drug_potentiality >= cutoffs["95%"] ~ "02_forest_5th",   # top 1–5%     — dark green
+        drug_potentiality >= cutoffs["90%"] ~ "03_forest_10th",  # top 5–10%    — mid green
+        drug_potentiality >= cutoffs["75%"] ~ "04_forest_50th",  # top 10–25%   — light green
+        drug_potentiality >= cutoffs["25%"] ~ "05_neutral",      # middle 50%   — purple
+        drug_potentiality >= cutoffs["10%"] ~ "06_desert_50th",  # bottom 10–25% — light yellow
+        drug_potentiality >= cutoffs["5%"]  ~ "07_desert_10th",  # bottom 5–10% — orange
+        drug_potentiality >= cutoffs["1%"]  ~ "08_desert_5th",   # bottom 1–5%  — dark orange
+        TRUE                                ~ "09_desert_1st"    # bottom 1%    — darkest brown
       )
     )
   
-  ## 7 discrete colors; neutral spans 50th desert to 50th forest (one color)
   band_colors <- c(
     "01_forest_1st"  = "#004d00",
     "02_forest_5th"  = "#1a7a1a",
     "03_forest_10th" = "#4caf50",
-    "04_neutral"     = "#9b72b0",
-    "05_desert_10th" = "#f5c542",
-    "06_desert_5th"  = "#e07b00",
-    "07_desert_1st"  = "#8B3a00"
+    "04_forest_50th" = "#b7e4b7",
+    "05_neutral"     = "#9b72b0",
+    "06_desert_50th" = "#f5c542",
+    "07_desert_10th" = "#e07b00",
+    "08_desert_5th"  = "#b85000",
+    "09_desert_1st"  = "#8B3a00"
   )
   
-  ## Map band names to numeric midpoints for gradient legend
-  band_order     <- c("01_forest_1st","02_forest_5th","03_forest_10th",
-                      "04_neutral","05_desert_10th","06_desert_5th","07_desert_1st")
-  band_midpoints <- c(0.995, 0.97, 0.925, 0.0, -0.55, -0.80, -0.995)
+  band_order <- c(
+    "01_forest_1st", "02_forest_5th", "03_forest_10th", "04_forest_50th",
+    "05_neutral",
+    "06_desert_50th", "07_desert_10th", "08_desert_5th", "09_desert_1st"
+  )
+  band_midpoints <- c(0.995, 0.97, 0.925, 0.50, 0.0, -0.50, -0.70, -0.92, -0.995)
   
   DP <- DP %>%
     dplyr::mutate(color_band_num = band_midpoints[match(color_band, band_order)])
@@ -8462,121 +7942,136 @@ if (1) {
   
   p_dp <- ggplot(DP_plot, aes(x = magnitude, y = drug_potentiality)) +
     
-    ## Background points — colored discretely by band
     geom_point(aes(color = color_band_num), size = 1.2, alpha = 0.7) +
     
-    ## Continuous gradient scale renders as a smooth gradient bar in the legend
-    ## but points are snapped to 7 discrete values so they appear as bands
     scale_color_gradientn(
-      colors   = c("#8B3a00", "#e07b00", "#f5c542", "#9b72b0", "#9b72b0", "#4caf50", "#1a7a1a", "#004d00"),
-      values   = scales::rescale(c(-1, -0.15, -0.10, -0.001, 0.001, 0.90, 0.97, 1)),
-      limits   = c(-1, 1),
-      name     = paste0("Drug Potentiality\n(", method, " Quant. \u2212 PCA Quant.)"),
-      guide    = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
+      colors = c("#8B3a00", "#b85000", "#e07b00", "#f5c542",
+                 "#9b72b0",
+                 "#b7e4b7", "#4caf50", "#1a7a1a", "#004d00"),
+      values = scales::rescale(c(-1, -0.92, -0.70, -0.50, 0.0, 0.50, 0.925, 0.97, 1)),
+      limits = c(-1, 1),
+      name   = paste0("Drug Potentiality\n(", method, " Quant. \u2212 PCA Quant.)"),
+      guide  = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
     ) +
     
-    ## Reference horizontal lines (percentile thresholds)
-    geom_hline(yintercept = cutoffs["50%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["10%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["5%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["1%"],   linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["90%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["95%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = cutoffs["99%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
-    geom_hline(yintercept = 0,               linetype = "solid",  color = "black",  linewidth = 0.5) +
+    ## Reference lines — now anchored to the actual percentile boundaries
+    geom_hline(yintercept = cutoffs["75%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["90%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["95%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["99%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["25%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["10%"], linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["5%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = cutoffs["1%"],  linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_hline(yintercept = 0,              linetype = "solid",  color = "black",  linewidth = 0.5) +
     
-    ## Gene labels — three layers so top10/bottom10 get distinct text colors
-    ## Manual curated genes: boxed label like paper figure
+    ## Gene labels
+ # geom_text_repel(
+ #      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
+ #      aes(label     = label),
+ #      size          = 2.8,
+ #      color         = "#004d00",
+ #      fontface      = "bold",
+ #      box.padding   = 0.5,
+ #      point.padding = 0.3,
+ #      max.overlaps  = 30,
+ #      segment.size  = 0.4,
+ #      segment.color = "#004d00"
+ #    ) +
+    
+    # geom_text_repel(
+    #   data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
+    #   aes(label     = label),
+    #   size          = 2.8,
+    #   color         = "#8B0000",
+    #   fontface      = "bold",
+    #   box.padding   = 0.5,
+    #   point.padding = 0.3,
+    #   max.overlaps  = 30,
+    #   segment.size  = 0.4,
+    #   segment.color = "#8B0000"
+    # ) +
+    # 
     geom_label_repel(
-      data           = DP_plot %>% dplyr::filter(label_group == "manual"),
-      aes(label      = label),
-      size           = 3.2,
-      color          = "black",
-      fontface       = "bold",
-      fill           = "white",
-      label.size     = 0.3,
-      label.padding  = unit(0.15, "lines"),
-      label.r        = unit(0.05, "lines"),
-      box.padding    = 0.4,
-      point.padding  = 0.2,
-      max.overlaps   = 30,
-      segment.size   = 0.3,
-      segment.color  = "grey50"
-    ) +
-    
-    ## Top 10 rainforest genes: bold dark green
-    geom_text_repel(
-      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
+      data          = DP_plot %>% dplyr::filter(label_group == "manual"),
       aes(label     = label),
-      size          = 2.8,
-      color         = "#004d00",
+      size          = 3.2,
+      color         = "black",
       fontface      = "bold",
-      box.padding   = 0.5,
-      point.padding = 0.3,
-      max.overlaps  = 30,
-      segment.size  = 0.4,
-      segment.color = "#004d00"
+      fill          = "white",
+      label.size    = 0.3,
+      label.padding = unit(0.15, "lines"),
+      label.r       = unit(0.05, "lines"),
+      box.padding   = 0.4,
+      point.padding = 0.2,
+      max.overlaps  = Inf,
+      segment.size  = 0.3,
+      segment.color = "grey50",
+      min.segment.length = 0,
+      nudge_x       = 0.02,
+      direction     = "y",
+      hjust         = 0
     ) +
     
-    ## Bottom 10 desert genes: bold dark red
-    geom_text_repel(
-      data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
-      aes(label     = label),
-      size          = 2.8,
-      color         = "#8B0000",
-      fontface      = "bold",
-      box.padding   = 0.5,
-      point.padding = 0.3,
-      max.overlaps  = 30,
-      segment.size  = 0.4,
-      segment.color = "#8B0000"
-    ) +
+    # geom_label_repel(
+    #   data          = DP_plot %>% dplyr::filter(label_group == "manual"),
+    #   aes(label     = label),
+    #   size          = 3.2,
+    #   color         = "black",
+    #   fontface      = "bold",
+    #   fill          = "white",
+    #   label.size    = 0.3,
+    #   label.padding = unit(0.15, "lines"),
+    #   label.r       = unit(0.05, "lines"),
+    #   box.padding   = 0.4,
+    #   point.padding = 0.2,
+    #   max.overlaps  = 30,
+    #   segment.size  = 0.3,
+    #   segment.color = "grey50"
+    # ) +
     
-    ## Axis annotations matching paper style
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["99%"] + 0.03,
+    ## Axis annotations — labels now reference the correct percentile cutoffs
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["99%"] + 0.03,
              label = "1st Forest",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["95%"] + 0.03,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["95%"] + 0.03,
              label = "5th Forest",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["90%"] + 0.03,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["90%"] + 0.03,
              label = "10th Forest", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] + 0.03,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["75%"] + 0.03,
              label = "50th Forest", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["50%"] - 0.06,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["25%"] - 0.06,
              label = "50th Desert", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["10%"] - 0.06,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["10%"] - 0.06,
              label = "10th Desert", size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["5%"] - 0.06,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["5%"]  - 0.06,
              label = "5th Desert",  size = 2.5, color = "grey30", hjust = 1) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 0.85, y = cutoffs["1%"] - 0.06,
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 0.85, y = cutoffs["1%"]  - 0.06,
              label = "1st Desert",  size = 2.5, color = "grey30", hjust = 1) +
     
-    ## Side label arrows (Drug Rainforest / Drug Desert)
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y =  0.7,
-             label = "Drug\nRainforest", size = 3, color = "#004d00",
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 1.0, y =  0.85,
+             label = "Drug\nRainforest", size = 4, color = "#004d00",
              fontface = "italic", hjust = 0.5) +
-    annotate("text", x = max(DP$magnitude, na.rm=T) * 1.05, y = -0.7,
-             label = "Drug\nDesert", size = 3, color = "#8B0000",
+    annotate("text", x = max(DP$magnitude, na.rm = TRUE) * 1.0, y = -0.85,
+             label = "Drug\nDesert", size = 4, color = "#8B0000",
              fontface = "italic", hjust = 0.5) +
     
     labs(
       x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
       y     = paste0(method, " Quantile \u2212 PCA Quantile\n(Drug Potentiality Score)"),
-      title = paste0("Drug Potentiality Score\n(", file_tag, ")")
+      title = paste0("Drug Potentiality Score\n(", file_tag, Filtered_Tag, ")")
     ) +
     scale_x_continuous(expand = expansion(mult = c(0.01, 0.12))) +
     theme_classic(base_size = 11) +
     theme(
-      legend.position  = "right",
+      legend.position   = "right",
       legend.key.height = unit(1.5, "cm"),
-      plot.title       = element_text(size = 10)
+      plot.title        = element_text(size = 10)
     )
   
-  print(p_dp)
-  
   ggsave(
-    filename = paste0(path.plots, "DrugPotentiality_", method, "_", file_tag, ".pdf"),
+    filename = paste0(path.plots, "DrugPotentiality_", method, "_", output_tag, Filtered_Tag, ".pdf"),
     plot     = p_dp,
-    width    = 8,
+    width    = 7,
     height   = 7,
     units    = "in",
     device   = cairo_pdf
@@ -8591,7 +8086,7 @@ if (1) {
   cat("\n--- Top 30 Drug RAINFOREST genes (highest potentiality) ---\n")
   print(DP %>% dplyr::arrange(desc(drug_potentiality)) %>%
           dplyr::select(Loading, abs_loading_drug, quantile_drug, abs_loading_PCA, quantile_PCA, drug_potentiality, magnitude) %>%
-          head(30))
+          head(500))
   
   cat("\n--- Top 30 Drug DESERT genes (lowest potentiality) ---\n")
   print(DP %>% dplyr::arrange(drug_potentiality) %>%
@@ -8632,7 +8127,7 @@ if (1) {
       lab   = c(paste0("Low ", label), paste0("Neutral ", label), paste0("High ", label)),
       col   = c("#004d00", "#9b72b0", "#004d00")
     )
-  
+    
     p_dist <- ggplot() +
       geom_histogram(
         data = data.frame(x = x_pos), aes(x = x, y = after_stat(density)),
@@ -8641,8 +8136,7 @@ if (1) {
       ) +
       geom_line(data = df_dist, aes(x = x, y = y), color = dist_color, linewidth = 0.8) +
       labs(x = "Maximal Absolute Loading", y = "Density",
-           title = paste0("Distribution of
-", label, " Maximal Loading")) +
+           title = paste0("Distribution of\n", label, " Maximal Loading")) +
       theme_classic(base_size = 9) +
       theme(plot.title = element_text(face = "italic", size = 8, hjust = 0.5))
     
@@ -8659,8 +8153,7 @@ if (1) {
                 hjust = -0.15, size = 2.8, color = example_pts$col, fontface = "italic") +
       scale_x_continuous(expand = expansion(mult = c(0.02, 0.25))) +
       labs(x = "Maximal Absolute Loading", y = "F(x)",
-           title = "Fitted Log Normal
-Cumulative Distribution") +
+           title = "Fitted Log Normal\nCumulative Distribution") +
       theme_classic(base_size = 9) +
       theme(plot.title = element_text(face = "italic", size = 8, hjust = 0.5))
     
@@ -8689,8 +8182,7 @@ Cumulative Distribution") +
     (panels_pca$p_dist  | panels_pca$p_cdf) /
     (p_raw               | p_quant) +
     patchwork::plot_annotation(
-      title = paste0("Drug Potentiality Score = (Drug + Gene Co signal) - Gene Signal
-",
+      title = paste0("Drug Potentiality Score = (Drug + Gene Co-signal) - Gene Signal\n",
                      method, " vs PCA"),
       theme = theme(plot.title = element_text(face = "bold", size = 11, hjust = 0.5))
     )
@@ -8698,13 +8190,25 @@ Cumulative Distribution") +
   print(p_all)
   
   ggsave(
-    filename = paste0(path.plots, "FigureA_", method, "_vs_PCA.pdf"),
+    filename = paste0(path.plots, "FigureA_", method, "_vs_PCA_", output_tag, Filtered_Tag, ".pdf"),
     plot     = p_all,
     width    = 6.5, height = 9, units = "in", device = cairo_pdf
   )
   
-   cat("6-panel figure saved")
+  cat("6-panel figure saved")
 }
+
+## Step 11: Extra table
+
+write.table(
+  x = DP %>%
+    dplyr::select(Loading, quantile_drug, quantile_PCA,
+                  drug_potentiality, magnitude, color_band,
+                  component_drug, component_PCA) %>%
+    dplyr::arrange(desc(drug_potentiality)),
+  file = paste0(path.dp, "DP_inspection_", output_tag, Filtered_Tag, ".txt"),
+  sep = "\t", quote = FALSE, row.names = FALSE
+)
 
 ##### Rank-Rank and RRHO plots (NOT USEFUL SO FAR) #####
 library(RRHO)
