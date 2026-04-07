@@ -28,6 +28,7 @@ if (1) {
   library(MASS)
   library(fitdistrplus)
   library(ggrepel)
+  library(WGCNA)
 }
 
 #### Imputation: CRISPR (NA's in Data) ####
@@ -4775,7 +4776,7 @@ keyword_groups <- list(
   STRESS_RESPONSE =
     c("DNA_DAMAGE", "APOPTOTIC", "REPAIR", "HYPOXIA", "STRESS"),
   METABOLIC_PATHWAY =
-    c("CATABOLIC", "ATP", "POLYSACCHARIDE"s, "FRUCTOSE",
+    c("CATABOLIC", "ATP", "POLYSACCHARIDE", "FRUCTOSE",
       "GLYCOSYLATION", "GLYCOGEN", "BIOSYNTHESIS", "LIPID"),
   # MITOCHONDRIA =
     # c("MITOCHONDRIAL", "MITOCHONDRION"),
@@ -5301,10 +5302,10 @@ path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
 path.plots   <- paste0(path.wd, "Plots/")
 
 ## WGCNA parameters (tune as needed)
-soft_power    <- 4L
-min_module_sz <- 30L
-merge_CutHeight <- 0.25
-deep_Split <- 4
+soft_power      <- 4L     # transforms correlation matrix & determines overall connectivity. the higher the value, the more strong correlations are emphasized and weaker are suppressed. This is determined by the scale-free topology fit (below)
+deep_Split      <- 4      # [0:4], determines how aggressively the dendogram is cut into initial clusters. higher = more aggressive splitting = more modules detected, less in grey
+min_module_sz   <- 30L    # modules bellow this size get assigned to grey
+merge_CutHeight <- 0.15   # after modules are built, any two modules who correlate above this threshold get merged. Higher = more aggressive merging = fewer final modules. 0.25 = modules >75% similar get collapsed.
 
 #### Prep for WGCNA by creating shared RNAi and CRISPR files
 if (1) {
@@ -5350,7 +5351,7 @@ if (1) {
 
 }
 
-#### Run to investigate soft power option (4 IS BEST)
+#### Run to investigate soft power option (CRISPR = 4, RNAi = 3)
 if (0) {
   
   ## Set range of powers and run
@@ -5378,7 +5379,7 @@ if (0) {
 }
 
 #### Run WGCNA (1) or Read in WGCNA object (0)
-if (0) {
+if (1) {
   
   ## Allow multi-threading for WGCNA
   WGCNA::enableWGCNAThreads()
@@ -5495,81 +5496,6 @@ if (1) {
 
 }
 
-#### Repeat CRISPR plot but only on top # of modules
-top_k <- 5L # Number of clusters
-
-if (0) {
-
-  ## Filter for top # of modules
-  mod_sizes <- sort(table(mod_ng), decreasing = TRUE)
-  top_modules <- names(mod_sizes)[seq_len(min(top_k, length(mod_sizes)))]
-  
-  ## Genes in those top modules
-  top_genes <- non_grey_genes[mod_ng %in% top_modules]
-  
-  ## Subset CRISPR to the top modules and cor()
-  CRISPR_top <- CRISPR_ng[, top_genes, drop = FALSE]
-  
-  cor_top <- stats::cor(
-    CRISPR_top,
-    method = "pearson",
-    use    = "pairwise.complete.obs"
-  )
-  
-  ## Module labels for these genes
-  mod_top <- mod_ng[mod_ng %in% top_modules]
-  
-  ## Order genes by module
-  gene_order_top <- order(mod_top)
-  
-  cor_top_ord <- cor_top[gene_order_top, gene_order_top, drop = FALSE]
-  mod_top_ord <- mod_top[gene_order_top]
-
-}
-
-#### Plot
-if (0) {
-  
-  p_crispr_top <- ComplexHeatmap::Heatmap(
-    cor_top_ord,
-    name = "Pearson r",
-    col  = col_fun,
-    show_row_names = FALSE,
-    show_column_names = FALSE,
-    cluster_rows = FALSE,
-    cluster_columns = FALSE,
-    row_split = mod_top_ord,
-    column_split = mod_top_ord,
-    row_title = NULL,
-    column_title = NULL,
-    row_gap = grid::unit(0, "pt"),
-    column_gap = grid::unit(0, "pt"),
-    rect_gp = grid::gpar(col = NA),
-    top_annotation = ComplexHeatmap::HeatmapAnnotation(
-      Module = mod_top_ord,
-      col = list(Module = module_col),
-      show_legend = TRUE
-    ),
-    left_annotation = ComplexHeatmap::rowAnnotation(
-      Module = mod_top_ord,
-      col = list(Module = module_col),
-      show_legend = FALSE
-    ),
-    use_raster = TRUE,
-    raster_quality = 6
-  )
-  
-  Cairo::CairoPNG(
-    filename = paste0(path.plots, "HEATMAP_WGCNA_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_Top", top_k, "Clusters.png"),
-    width  = 3000,
-    height = 3000,
-    res    = 200
-  )
-  ComplexHeatmap::draw(p_crispr_top)
-  grDevices::dev.off()
-
-}
-
 #### Look at all CRISPR modules now in RNAi
 if (1) {
   ## Filter for all non grey modules
@@ -5628,58 +5554,6 @@ if (1) {
   
 }
 
-#### Look at top CRISPR modules now in RNAi
-if (0) {
-  RNAi_top <- RNAi_common[, top_genes, drop = FALSE]
-  
-  cor_RNAi_top <- stats::cor(
-    RNAi_top,
-    method = "pearson",
-    use    = "pairwise.complete.obs"
-  )
-  
-  cor_RNAi_top_ord <- cor_RNAi_top[gene_order_top, gene_order_top, drop = FALSE]
-  
-  p_RNAi_top <- ComplexHeatmap::Heatmap(
-    cor_RNAi_top_ord,
-    name = "Pearson r",
-    col = col_fun,
-    show_row_names = FALSE,
-    show_column_names = FALSE,
-    cluster_rows = FALSE,
-    cluster_columns = FALSE,
-    row_split = mod_top_ord,
-    column_split = mod_top_ord,
-    row_title = NULL,
-    column_title = NULL,
-    row_gap = grid::unit(0, "pt"),
-    column_gap = grid::unit(0, "pt"),
-    rect_gp = grid::gpar(col = NA),
-    top_annotation = ComplexHeatmap::HeatmapAnnotation(
-      Module = mod_top_ord,
-      col = list(Module = module_col),
-      show_legend = TRUE
-    ),
-    left_annotation = ComplexHeatmap::rowAnnotation(
-      Module = mod_top_ord,
-      col = list(Module = module_col),
-      show_legend = FALSE
-    ),
-    use_raster = TRUE,
-    raster_quality = 6
-  )
-  
-  Cairo::CairoPNG(
-    filename = paste0(path.plots,"HEATMAP_WGCNA_RNAi_OrderedByCRISPR_SoftPower_", soft_power,"_MinModuleSize_", min_module_sz, "_Top", top_k, "Clusters.png"),
-    width  = 3000,
-    height = 3000,
-    res    = 200
-  )
-  ComplexHeatmap::draw(p_RNAi_top)
-  grDevices::dev.off()
-  
-}
-
 #### GO:BP Enrichment per CRISPR module 
 if (1) {
   
@@ -5720,8 +5594,7 @@ if (1) {
   
   ## Save RDS Object
   saveRDS(enrich_results, 
-          file = paste0(path.wd, "DataSets/WGCNA/Enrichment_Results_CRISPR_SoftPower_", 
-                        soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, ".rds"))
+          file = paste0(path.wd, "DataSets/WGCNA/Enrichment_Results_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".rds"))
   
   ## Write file and sort by module size
   wb <- createWorkbook()
@@ -5743,8 +5616,9 @@ if (1) {
   }
   
   saveWorkbook(wb, 
-               file = paste0(path.wd, "DataSets/WGCNA/GO_Enrichment_CRISPR_AllModules_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, ".xlsx"),
+               file = paste0(path.wd, "DataSets/WGCNA/GO_Enrichment_CRISPR_AllModules_SoftPower_" , soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".xlsx"),
                overwrite = TRUE)
+  
 }
 
 #### Visualize enrichment for top modules with significant results
@@ -5823,68 +5697,6 @@ if (1) {
   
 }
 
-#### Visualize enrichment for n = # of modules (OG)
-n_modules_to_plot <- 5 # Number of modules
-
-if (1) {
-  
-  top_modules <- names(sort(table(moduleColors_CRISPR[moduleColors_CRISPR != "grey"]), 
-                            decreasing = TRUE))[1:n_modules_to_plot]
-  
-  ## Loop through and create plots for each
-  for (target_module in top_modules) {
-    
-    # Check if GO results exist
-    if (!is.null(enrich_results[[target_module]]$GO) && 
-        nrow(enrich_results[[target_module]]$GO@result) > 0) {
-      
-      ## Dotplot for GO terms
-      p_go_dot <- dotplot(enrich_results[[target_module]]$GO, 
-                          showCategory = 15,
-                          title = paste0(target_module, " module - GO:BP enrichment"))
-      
-      ggsave(
-        paste0(path.plots, "WGCGO_Dotplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
-        p_go_dot,
-        width = 10,
-        height = 8)
-      
-      ## Barplot for GO terms
-      p_go_bar <- barplot(enrich_results[[target_module]]$GO,
-                          showCategory = 15,
-                          title = paste0(target_module, " module - GO:BP enrichment"))
-      
-      ggsave(
-        paste0(path.plots, "WGCNA_GO_Barplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
-        p_go_bar,
-        width = 10,
-        height = 8)
-      
-      ## Enrichment map to show GO term relationships (with error handling)
-      tryCatch({
-        p_emap <- emapplot(pairwise_termsim(enrich_results[[target_module]]$GO),
-                           showCategory = 30)
-        
-        ggsave(
-          paste0(path.plots, "WGCNA_EnrichmentMap_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
-          p_emap,
-          width = 12,
-          height = 10)
-        
-      }, error = function(e) {
-        cat("Could not create enrichment map for module:", target_module, 
-            "(not enough similar terms)\n")
-      })
-      
-      cat("Plots saved for module:", target_module, "\n")
-      
-    } else {
-      cat("No significant GO terms for module:", target_module, "\n")
-    }
-  }
-
-}
-
 #### Checking for conservation between CRISPR and RNAi
 if (1) {
   
@@ -5927,7 +5739,7 @@ if (1) {
   
   ## Save the results
   saveRDS(mp, 
-          file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".rds"))
+          file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".rds"))
   
   ## Extract preservation statistics
   ref <- 1  # CRISPR
@@ -5943,7 +5755,7 @@ if (1) {
   
   write.table(
     x = stats,
-    file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".txt"),
+    file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".txt"),
     row.names = T,
     sep = "\t",
     quote = F
@@ -5955,7 +5767,7 @@ if (1) {
 if (1) {
   
   mp <- readRDS(file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", 
-                              soft_power, "_MinModuleSize_", min_module_sz, ".rds"))
+                              soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".rds"))
   
   stats <- mp$preservation$Z$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
   obsStats <- mp$preservation$observed$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
@@ -7855,7 +7667,7 @@ if (1) {
   ## Manual curation list (from paper figure + your existing annotation groups)
   genes_manual <- c(
     ## Desert
-    "KRAS", "PTEN", "SOD2",
+    "KRAS", "PTEN", "SOD2", "MED12",
     ## Forest
     "VEGFA", "EPCAM", "ERG",
     
@@ -8442,3 +8254,741 @@ ft <- flextable(df) |>
   bold(part = "header")
 
 save_as_image(ft, path = paste0(path.stat, "canonical_correlations_table.png"))
+
+##### SCRAP BELOW !!!!!!!!!!!!!!!!!! #####
+##### WGCNA: CRISPR (BACKUP BEFORE DELETED TOP 5 SECTIONS) #####
+
+## Set OS (for swapping between personal and workstation)
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd      <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm      <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.plots   <- paste0(path.wd, "Plots/")
+
+## WGCNA parameters (tune as needed)
+soft_power      <- 4L     # transforms correlation matrix & determines overall connectivity. the higher the value, the more strong correlations are emphasized and weaker are suppressed. This is determined by the scale-free topology fit (below)
+deep_Split      <- 4      # [0:4], determines how aggressively the dendogram is cut into initial clusters. higher = more aggressive splitting = more modules detected, less in grey
+min_module_sz   <- 30L    # modules bellow this size get assigned to grey
+merge_CutHeight <- 0.20   # after modules are built, any two modules who correlate above this threshold get merged. Higher = more aggressive merging = fewer final modules. 0.25 = modules >75% similar get collapsed.
+
+#### Prep for WGCNA by creating shared RNAi and CRISPR files
+if (1) {
+  
+  ## Read in CRISPR data
+  CRISPR <- read.delim(
+    file = paste0(path.dm, "CRISPRGeneEffect_MFImputed.txt"),
+    sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
+  ) %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .))
+  
+  ## Read in and format RNAi data
+  RNAi <- read.delim(
+    file = paste0(path.dm, "D2_combined_gene_dep_scores_MFImputed.txt"),
+    sep = "\t", stringsAsFactors = F, check.names = F, row.names = 1
+  )
+  
+  models <- read.delim(paste0(path.dm,"Model.csv"), sep = ",", stringsAsFactors = F, check.names = F) %>%
+    dplyr::select(ModelID, CCLEName)
+  
+  RNAi_t <- RNAi %>%
+    t() %>%
+    data.frame() %>%
+    tibble::rownames_to_column(var = "CCLEName") %>%
+    dplyr::rename_with(~ sub("\\.\\..*", "", .))
+  
+  RNAi_t_ModelID <- merge(models, RNAi_t, by = "CCLEName") %>%
+    dplyr::select(-CCLEName) %>%
+    tibble::column_to_rownames(var = "ModelID")
+  
+  ## Filter data frames to common genes and cell lines
+  common_genes    <- intersect(colnames(CRISPR), colnames(RNAi_t_ModelID))
+  common_cells    <- intersect(rownames(CRISPR), rownames(RNAi_t_ModelID))
+  
+  CRISPR_common   <- CRISPR[common_cells, common_genes, drop = FALSE]
+  RNAi_common     <- RNAi_t_ModelID[common_cells, common_genes, drop = FALSE]
+  
+  CRISPR_common[] <- lapply(CRISPR_common, as.numeric)
+  RNAi_common[]   <- lapply(RNAi_common, as.numeric)
+  
+  CRISPR_common   <- as.data.frame(CRISPR_common)
+  RNAi_common     <- as.data.frame(RNAi_common)
+  
+}
+
+#### Run to investigate soft power option (CRISPR = 4, RNAi = 3)
+if (0) {
+  
+  ## Set range of powers and run
+  powers <- c(1:20)
+  
+  sft_CRISPR <- pickSoftThreshold(CRISPR_common,
+                                  powerVector = powers,
+                                  verbose = 5)
+  
+  ## Plot
+  pdf(paste0(path.plots, "soft_power_selection_CRISPR.pdf"), width = 10, height = 5)
+  
+  par(mfrow = c(1,2))
+  
+  plot(sft_CRISPR$fitIndices[,1], -sign(sft_CRISPR$fitIndices[,3])*sft_CRISPR$fitIndices[,2],
+       xlab="Soft Power", ylab="Scale Free Topology R²",
+       main="Scale independence")
+  abline(h=0.8, col="red")
+  
+  plot(sft_CRISPR$fitIndices[,1], sft_CRISPR$fitIndices[,5],
+       xlab="Soft Power", ylab="Mean Connectivity",
+       main="Mean connectivity")
+  
+  dev.off()
+}
+
+#### Run WGCNA (1) or Read in WGCNA object (0)
+if (0) {
+  
+  ## Allow multi-threading for WGCNA
+  WGCNA::enableWGCNAThreads()
+  
+  ## Run WGCNA on CRISPR dependencies
+  net_CRISPR <- WGCNA::blockwiseModules(
+    CRISPR_common,
+    power              = soft_power,
+    minModuleSize      = min_module_sz,
+    networkType        = "signed", # anti correlate genes are not emphasized
+    TOMType            = "signed",
+    reassignThreshold  = 0,
+    mergeCutHeight     = merge_CutHeight, # increase to merge similar modules
+    numericLabels      = FALSE,
+    pamRespectsDendro  = TRUE,
+    verbose            = 3,
+    deepSplit          = deep_Split
+  )
+  
+  ## Save WGCNA object
+  saveRDS(
+    net_CRISPR,
+    file = paste0(path.wd, "/DataSets/WGCNA/WGCNA_Object_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".rds"))
+  
+  table(net_CRISPR$colors)
+  
+} else {
+  
+  ## Load in WGCNA object
+  net_CRISPR <- readRDS(paste0(path.wd, "/DataSets/WGCNA/WGCNA_Object_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, ".rds"))
+  
+  table(net_CRISPR$colors)
+}
+
+#### Perform correlation on all non grey modules and plot
+if (1) {
+  
+  ## Extract module colors and gene tree
+  moduleColors_CRISPR <- net_CRISPR$colors
+  # table(moduleColors_CRISPR)
+  
+  ## Get names of genes assigned to clusters (remove "grey" genes)
+  non_grey_genes <- colnames(CRISPR_common)[moduleColors_CRISPR != "grey"]
+  length(non_grey_genes)
+  # 4277, soft_power - 6L, min_module_sz - 5L
+  # 1465, soft_power - 10L, min_module_sz - 5L
+  
+  CRISPR_ng <- CRISPR_common[, non_grey_genes, drop = FALSE]
+  
+  ## Perform correlation without grey genes
+  cor_CRISPR <- stats::cor(
+    CRISPR_ng,
+    method = "pearson",
+    use    = "pairwise.complete.obs"
+  )
+  
+  ## Reorder cor matrix so genes are grouped by their WGCNA module color
+  mod_ng <- moduleColors_CRISPR[non_grey_genes]
+  gene_order <- order(mod_ng)
+  
+  cor_CRISPR_ord <- cor_CRISPR[gene_order, gene_order]
+  mod_ng_ord     <- mod_ng[gene_order]
+  
+  col_fun <- circlize::colorRamp2(
+    c(-1, 0, 1),
+    c("#2166AC", "white", "#B2182B")
+  ) # fix the legend scale
+  
+  ## Make module color mapping that matches WGCNA names exactly
+  module_levels <- unique(mod_ng_ord)
+  module_col <- stats::setNames(module_levels, module_levels)  # names == values == R colors
+  
+  p_crispr <- ComplexHeatmap::Heatmap(
+    cor_CRISPR_ord,
+    name = "Pearson r",
+    col  = col_fun,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_split = mod_ng_ord,
+    column_split = mod_ng_ord,
+    row_title = NULL,
+    column_title = NULL,
+    row_gap = grid::unit(0, "pt"),
+    column_gap = grid::unit(0, "pt"),
+    rect_gp = grid::gpar(col = NA),
+    top_annotation = ComplexHeatmap::HeatmapAnnotation(
+      Module = mod_ng_ord,
+      col = list(Module = module_col),
+      show_legend = TRUE
+    ),
+    left_annotation = ComplexHeatmap::rowAnnotation(
+      Module = mod_ng_ord,
+      col = list(Module = module_col),
+      show_legend = FALSE
+    ),
+    
+    use_raster = FALSE,
+    raster_quality = 6
+  )
+  
+  Cairo::CairoPNG(
+    filename = paste0(
+      path.plots,
+      "HEATMAP_WGCNA_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_AllClusters.png"
+    ),
+    width  = 3000,
+    height = 3000,
+    res    = 200
+  )
+  ComplexHeatmap::draw(p_crispr)
+  grDevices::dev.off()
+  
+}
+
+#### Repeat CRISPR plot but only on top # of modules
+top_k <- 5L # Number of clusters
+
+if (0) {
+  
+  ## Filter for top # of modules
+  mod_sizes <- sort(table(mod_ng), decreasing = TRUE)
+  top_modules <- names(mod_sizes)[seq_len(min(top_k, length(mod_sizes)))]
+  
+  ## Genes in those top modules
+  top_genes <- non_grey_genes[mod_ng %in% top_modules]
+  
+  ## Subset CRISPR to the top modules and cor()
+  CRISPR_top <- CRISPR_ng[, top_genes, drop = FALSE]
+  
+  cor_top <- stats::cor(
+    CRISPR_top,
+    method = "pearson",
+    use    = "pairwise.complete.obs"
+  )
+  
+  ## Module labels for these genes
+  mod_top <- mod_ng[mod_ng %in% top_modules]
+  
+  ## Order genes by module
+  gene_order_top <- order(mod_top)
+  
+  cor_top_ord <- cor_top[gene_order_top, gene_order_top, drop = FALSE]
+  mod_top_ord <- mod_top[gene_order_top]
+  
+}
+
+#### Plot
+if (0) {
+  
+  p_crispr_top <- ComplexHeatmap::Heatmap(
+    cor_top_ord,
+    name = "Pearson r",
+    col  = col_fun,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_split = mod_top_ord,
+    column_split = mod_top_ord,
+    row_title = NULL,
+    column_title = NULL,
+    row_gap = grid::unit(0, "pt"),
+    column_gap = grid::unit(0, "pt"),
+    rect_gp = grid::gpar(col = NA),
+    top_annotation = ComplexHeatmap::HeatmapAnnotation(
+      Module = mod_top_ord,
+      col = list(Module = module_col),
+      show_legend = TRUE
+    ),
+    left_annotation = ComplexHeatmap::rowAnnotation(
+      Module = mod_top_ord,
+      col = list(Module = module_col),
+      show_legend = FALSE
+    ),
+    use_raster = TRUE,
+    raster_quality = 6
+  )
+  
+  Cairo::CairoPNG(
+    filename = paste0(path.plots, "HEATMAP_WGCNA_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_Top", top_k, "Clusters.png"),
+    width  = 3000,
+    height = 3000,
+    res    = 200
+  )
+  ComplexHeatmap::draw(p_crispr_top)
+  grDevices::dev.off()
+  
+}
+
+#### Look at all CRISPR modules now in RNAi
+if (1) {
+  ## Filter for all non grey modules
+  RNAi_ng <- RNAi_common[, non_grey_genes, drop = FALSE]
+  
+  ## Gene–gene correlation for RNAi on the same genes
+  cor_RNAi <- stats::cor(
+    RNAi_ng,
+    method = "pearson",
+    use    = "pairwise.complete.obs"
+  )
+  
+  ## Use the SAME module labels/order you used for CRISPR
+  cor_RNAi_ord <- cor_RNAi[gene_order, gene_order, drop = FALSE]
+  
+  ## Plot
+  p_RNAi <- ComplexHeatmap::Heatmap(
+    cor_RNAi_ord,
+    name = "Pearson r",
+    col = col_fun,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_split = mod_ng_ord,
+    column_split = mod_ng_ord,
+    row_title = NULL,
+    column_title = NULL,
+    row_gap = grid::unit(0, "pt"),
+    column_gap = grid::unit(0, "pt"),
+    rect_gp = grid::gpar(col = NA),
+    top_annotation = ComplexHeatmap::HeatmapAnnotation(
+      Module = mod_ng_ord,
+      col = list(Module = module_col),
+      show_legend = TRUE
+    ),
+    left_annotation = ComplexHeatmap::rowAnnotation(
+      Module = mod_ng_ord,
+      col = list(Module = module_col),
+      show_legend = FALSE
+    ),
+    use_raster = TRUE,
+    raster_quality = 6
+  )
+  
+  Cairo::CairoPNG(
+    filename = paste0(
+      path.plots,"HEATMAP_WGCNA_RNAi_OrderedByCRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_AllClusters.png"
+    ),
+    width  = 3000,
+    height = 3000,
+    res    = 200
+  )
+  ComplexHeatmap::draw(p_RNAi)
+  grDevices::dev.off()
+  
+}
+
+#### Look at top CRISPR modules now in RNAi
+if (0) {
+  RNAi_top <- RNAi_common[, top_genes, drop = FALSE]
+  
+  cor_RNAi_top <- stats::cor(
+    RNAi_top,
+    method = "pearson",
+    use    = "pairwise.complete.obs"
+  )
+  
+  cor_RNAi_top_ord <- cor_RNAi_top[gene_order_top, gene_order_top, drop = FALSE]
+  
+  p_RNAi_top <- ComplexHeatmap::Heatmap(
+    cor_RNAi_top_ord,
+    name = "Pearson r",
+    col = col_fun,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_split = mod_top_ord,
+    column_split = mod_top_ord,
+    row_title = NULL,
+    column_title = NULL,
+    row_gap = grid::unit(0, "pt"),
+    column_gap = grid::unit(0, "pt"),
+    rect_gp = grid::gpar(col = NA),
+    top_annotation = ComplexHeatmap::HeatmapAnnotation(
+      Module = mod_top_ord,
+      col = list(Module = module_col),
+      show_legend = TRUE
+    ),
+    left_annotation = ComplexHeatmap::rowAnnotation(
+      Module = mod_top_ord,
+      col = list(Module = module_col),
+      show_legend = FALSE
+    ),
+    use_raster = TRUE,
+    raster_quality = 6
+  )
+  
+  Cairo::CairoPNG(
+    filename = paste0(path.plots,"HEATMAP_WGCNA_RNAi_OrderedByCRISPR_SoftPower_", soft_power,"_MinModuleSize_", min_module_sz, "_Top", top_k, "Clusters.png"),
+    width  = 3000,
+    height = 3000,
+    res    = 200
+  )
+  ComplexHeatmap::draw(p_RNAi_top)
+  grDevices::dev.off()
+  
+}
+
+#### GO:BP Enrichment per CRISPR module 
+if (1) {
+  
+  ## Get all unique modules (excluding grey)
+  moduleColors_CRISPR <- net_CRISPR$colors
+  unique_modules <- unique(moduleColors_CRISPR[moduleColors_CRISPR != "grey"])
+  
+  ## Create a list to store enrichment results for each module
+  enrich_results <- list()
+  
+  ## Loop through each module and perform ORA
+  for (module in unique_modules) {
+    
+    # Get genes in this module
+    module_genes <- names(moduleColors_CRISPR)[moduleColors_CRISPR == module]
+    
+    # Gene Ontology enrichment
+    ego <- enrichGO(
+      gene          = module_genes,
+      OrgDb         = org.Hs.eg.db,
+      keyType       = "SYMBOL",
+      ont           = "BP",
+      pAdjustMethod = "BH",
+      pvalueCutoff  = 0.05,
+      qvalueCutoff  = 0.2,
+      readable      = TRUE
+    )
+    
+    # Store results
+    enrich_results[[module]] <- list(
+      GO      = ego,
+      n_genes = length(module_genes)
+    )
+    
+    cat("Module:", module, "- Genes:", length(module_genes), 
+        "- GO terms:", nrow(ego@result), "\n")
+  }
+  
+  ## Save RDS Object
+  saveRDS(enrich_results, 
+          file = paste0(path.wd, "DataSets/WGCNA/Enrichment_Results_CRISPR_SoftPower_", 
+                        soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, ".rds"))
+  
+  ## Write file and sort by module size
+  wb <- createWorkbook()
+  
+  # Order modules by size (largest to smallest)
+  module_sizes <- sapply(names(enrich_results), function(m) enrich_results[[m]]$n_genes)
+  modules_ordered <- names(sort(module_sizes, decreasing = TRUE))
+  
+  for (module in modules_ordered) {
+    if (!is.null(enrich_results[[module]]$GO) && 
+        nrow(enrich_results[[module]]$GO@result) > 0) {
+      
+      go_df <- enrich_results[[module]]$GO@result
+      
+      # Add sheet for this module
+      addWorksheet(wb, sheetName = module)
+      writeData(wb, sheet = module, x = go_df)
+    }
+  }
+  
+  saveWorkbook(wb, 
+               file = paste0(path.wd, "DataSets/WGCNA/GO_Enrichment_CRISPR_AllModules_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, ".xlsx"),
+               overwrite = TRUE)
+}
+
+#### Visualize enrichment for top modules with significant results
+n_modules_to_plot <- 5 # Number of modules
+
+if (1) {
+  
+  ## Get all modules sorted by size
+  all_modules <- names(sort(table(moduleColors_CRISPR[moduleColors_CRISPR != "grey"]), 
+                            decreasing = TRUE))
+  
+  ## Filter to only modules with significant GO terms
+  modules_with_sig_results <- c()
+  for (module in all_modules) {
+    if (!is.null(enrich_results[[module]]$GO) && 
+        nrow(enrich_results[[module]]$GO@result) > 0 &&
+        sum(enrich_results[[module]]$GO@result$p.adjust < 0.05) > 0) {
+      modules_with_sig_results <- c(modules_with_sig_results, module)
+    }
+  }
+  
+  ## Take top n modules that have significant results
+  top_modules <- head(modules_with_sig_results, n_modules_to_plot)
+  
+  cat("Plotting", length(top_modules), "modules with significant GO enrichment:\n")
+  cat(paste(top_modules, collapse = ", "), "\n\n")
+  
+  ## Loop through and create plots for each
+  for (target_module in top_modules) {
+    
+    ## Dotplot for GO terms
+    p_go_dot <- dotplot(enrich_results[[target_module]]$GO, 
+                        showCategory = 15,
+                        title = paste0(target_module, " module - GO:BP enrichment"))
+    
+    ggsave(
+      paste0(path.plots, "WGCGO_Dotplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", target_module, "_Module.png"),
+      p_go_dot,
+      width = 10,
+      height = 8)
+    
+    ## Barplot for GO terms
+    p_go_bar <- barplot(enrich_results[[target_module]]$GO,
+                        showCategory = 15,
+                        title = paste0(target_module, " module - GO:BP enrichment"))
+    
+    ggsave(
+      paste0(path.plots, "WGCNA_GO_Barplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", target_module, "_Module.png"),
+      p_go_bar,
+      width = 10,
+      height = 8)
+    
+    ## Enrichment map to show GO term relationships (with error handling)
+    tryCatch({
+      p_emap <- emapplot(pairwise_termsim(enrich_results[[target_module]]$GO),
+                         showCategory = 30)
+      
+      ggsave(
+        paste0(path.plots, "WGCNA_EnrichmentMap_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", "_Module.png"),
+        p_emap,
+        width = 12,
+        height = 10)
+      
+    }, error = function(e) {
+      cat("Could not create enrichment map for module:", target_module, 
+          "(not enough similar terms)\n")
+    })
+    
+    cat("Plots saved for module:", target_module, "\n")
+  }
+  
+  # Report if fewer than requested modules had significant results
+  if (length(top_modules) < n_modules_to_plot) {
+    cat("\nNote: Only", length(top_modules), "modules had significant GO enrichment (requested", n_modules_to_plot, ")\n")
+  }
+  
+}
+
+#### Visualize enrichment for n = # of modules (OG)
+n_modules_to_plot <- 5 # Number of modules
+
+if (1) {
+  
+  top_modules <- names(sort(table(moduleColors_CRISPR[moduleColors_CRISPR != "grey"]), 
+                            decreasing = TRUE))[1:n_modules_to_plot]
+  
+  ## Loop through and create plots for each
+  for (target_module in top_modules) {
+    
+    # Check if GO results exist
+    if (!is.null(enrich_results[[target_module]]$GO) && 
+        nrow(enrich_results[[target_module]]$GO@result) > 0) {
+      
+      ## Dotplot for GO terms
+      p_go_dot <- dotplot(enrich_results[[target_module]]$GO, 
+                          showCategory = 15,
+                          title = paste0(target_module, " module - GO:BP enrichment"))
+      
+      ggsave(
+        paste0(path.plots, "WGCGO_Dotplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
+        p_go_dot,
+        width = 10,
+        height = 8)
+      
+      ## Barplot for GO terms
+      p_go_bar <- barplot(enrich_results[[target_module]]$GO,
+                          showCategory = 15,
+                          title = paste0(target_module, " module - GO:BP enrichment"))
+      
+      ggsave(
+        paste0(path.plots, "WGCNA_GO_Barplot_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
+        p_go_bar,
+        width = 10,
+        height = 8)
+      
+      ## Enrichment map to show GO term relationships (with error handling)
+      tryCatch({
+        p_emap <- emapplot(pairwise_termsim(enrich_results[[target_module]]$GO),
+                           showCategory = 30)
+        
+        ggsave(
+          paste0(path.plots, "WGCNA_EnrichmentMap_CRISPR_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, target_module, "_Module.png"),
+          p_emap,
+          width = 12,
+          height = 10)
+        
+      }, error = function(e) {
+        cat("Could not create enrichment map for module:", target_module, 
+            "(not enough similar terms)\n")
+      })
+      
+      cat("Plots saved for module:", target_module, "\n")
+      
+    } else {
+      cat("No significant GO terms for module:", target_module, "\n")
+    }
+  }
+  
+}
+
+#### Checking for conservation between CRISPR and RNAi
+if (1) {
+  
+  moduleColors_CRISPR <- net_CRISPR$colors
+  
+  multiExpr <- list(
+    CRISPR = list(data = CRISPR_common),
+    RNAi   = list(data = RNAi_common)
+  )
+  
+  multiColor <- list(
+    CRISPR = moduleColors_CRISPR
+  )
+  
+  ## Set up to run in parallel
+  n_cores <- parallel::detectCores() - 1
+  
+  cl <- makeCluster(n_cores)
+  registerDoParallel(cl)
+  
+  WGCNA::enableWGCNAThreads(nThreads = n_cores)
+  
+  ## Run module preservation with parallelization
+  set.seed(999)
+  
+  mp <- WGCNA::modulePreservation(
+    multiExpr,
+    multiColor,
+    referenceNetworks = 1,      # CRISPR is reference (index 1)
+    nPermutations = 200,        # increase to 200+ for publication
+    randomSeed = 999,
+    quickCor = 0,               # 0 = use WGCNA cor, 1 = use cor()
+    verbose = 3,
+    maxGoldModuleSize = 1000,   # modules larger than this use approximations
+    maxModuleSize = 1000
+  )
+  
+  ## Stop the cluster when done
+  stopCluster(cl)
+  
+  ## Save the results
+  saveRDS(mp, 
+          file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".rds"))
+  
+  ## Extract preservation statistics
+  ref <- 1  # CRISPR
+  test <- 2 # RNAi
+  
+  stats <- mp$preservation$Z$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  
+  ## Interpretation thresholds (Langfelder & Horvath)
+  # Zsummary < 2: no preservation
+  # 2 < Zsummary < 10: weak to moderate preservation  
+  # Zsummary > 10: strong preservation
+  # Note: gold module (all genes) and grey (unassigned) are not informative
+  
+  write.table(
+    x = stats,
+    file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".txt"),
+    row.names = T,
+    sep = "\t",
+    quote = F
+  )
+  
+}
+
+#### Visualize preservation statistics
+if (1) {
+  
+  mp <- readRDS(file = paste0(path.wd, "DataSets/WGCNA/ModulePreservation_CRISPR_in_RNAi_SoftPower_", 
+                              soft_power, "_MinModuleSize_", min_module_sz, ".rds"))
+  
+  stats <- mp$preservation$Z$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  obsStats <- mp$preservation$observed$ref.CRISPR$inColumnsAlsoPresentIn.RNAi
+  
+  plotData <- data.frame(
+    module     = rownames(stats),
+    size       = stats$moduleSize,
+    Zsummary   = stats$Zsummary.pres,
+    medianRank = obsStats$medianRank.pres
+  )
+  
+  ## Remove gold and grey
+  plotData <- plotData[!plotData$module %in% c("gold", "grey"), ]
+  
+  ## Add preservation category
+  plotData$preservation <- cut(
+    plotData$Zsummary,
+    breaks = c(-Inf, 2, 10, Inf),
+    labels = c("No preservation", "Weak-Moderate", "Strong preservation")
+  )
+  
+  ## Plot 1: Zsummary vs module size
+  p_preservation <- ggplot(plotData, aes(x = size, y = Zsummary, color = module, label = module)) +
+    geom_point(size = 4) +
+    geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +
+    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
+    scale_color_identity() +
+    labs(
+      x = "Module Size (number of genes)",
+      y = "Preservation Z-summary",
+      title = paste0("Module Preservation: CRISPR modules in RNAi data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
+    ) +
+    
+    annotate("text", x = max(plotData$size) * 0.7, y = 2, 
+             label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
+    annotate("text", x = max(plotData$size) * 0.7, y = 10, 
+             label = "Z = 10 (strong)", vjust = -0.5, color = "darkgreen") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  ggsave(paste0(path.plots, "ModulePreservation_Zsummary_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".png"), p_preservation, width = 8, height = 7)
+  
+  ## Plot 2: Median rank vs Zsummary
+  p_rank <- ggplot(plotData, aes(x = medianRank, y = Zsummary, color = module, label = module)) +
+    geom_point(size = 4) +
+    geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +
+    geom_hline(yintercept = 10, linetype = "dashed", color = "darkgreen") +    geom_text(hjust = -0.2, vjust = -0.2, size = 3, show.legend = FALSE) +
+    scale_color_identity() +
+    labs(
+      x = "Median Rank",
+      y = "Preservation Z-summary",
+      title = paste0("Module Preservation: CRISPR modules in RNAi data: Soft Power ", soft_power, ", Min Mod Size ", min_module_sz)
+    ) +
+    annotate("text", x = max(plotData$size) * 0.2, y = 2, 
+             label = "Z = 2 (threshold)", vjust = -0.5, color = "blue") +
+    annotate("text", x = max(plotData$size) * 0.2, y = 10, 
+             label = "Z = 10 (strong)", vjust = -0.5, color = "darkgreen") +
+    theme_bw() +
+    theme(legend.position = "none")
+  
+  ggsave(paste0(path.plots, "ModulePreservation_MedianRank_CRISPR_in_RNAi_SoftPower_", soft_power, "_MinModuleSize_", min_module_sz, "_mergeCutHeight_", merge_CutHeight, "_deepSplit_", deep_Split, "_", ".png"), p_rank, width = 8, height = 7)
+  
+}
