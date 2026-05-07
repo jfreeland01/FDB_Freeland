@@ -326,6 +326,86 @@ path.gdsc <- paste0(path.wd, "DataSets/GDSC/")
 ## Load in cell line info from depamp
 gdsc <- read.delim(paste0(path.gdsc,"sanger-dose-response.csv"), sep = ",", stringsAsFactors = F, check.names = F)
 
+## Subset to GDSC2
+GDSC2 <- gdsc[gdsc$DATASET == "GDSC2", ]
+  
+## Select AUC_PUBLISHED and filter missing cell line IDs
+gdsc2.abr <- GDSC2 %>%
+  dplyr::select(ARXSPAN_ID, DRUG_NAME, AUC_PUBLISHED) %>%
+  dplyr::filter(!is.na(ARXSPAN_ID))
+  
+## Average across replicates (if any cell line / drug pairs are duplicated)
+gdsc2.ave <- gdsc2.abr %>%
+  dplyr::group_by(ARXSPAN_ID, DRUG_NAME) %>%
+  dplyr::summarise(avg_auc = mean(AUC_PUBLISHED, na.rm = TRUE)) %>%
+  dplyr::ungroup()
+  
+## Reshape to wide format (cell lines x drugs)
+gdsc2.wide <- reshape(
+  as.data.frame(gdsc2.ave),
+  idvar     = "ARXSPAN_ID",
+  v.names   = "avg_auc",
+  timevar   = "DRUG_NAME",
+  direction = "wide"
+)
+  
+names(gdsc2.wide) <- gsub("^avg_auc\\.", "", names(gdsc2.wide))
+row.names(gdsc2.wide) <- gdsc2.wide$ARXSPAN_ID
+gdsc2.wide <- gdsc2.wide[, -1]
+  
+file.gdsc2.wide <- paste0(path.gdsc, "gdsc2_auc_wide.txt")
+  
+write.table(
+  x         = gdsc2.wide,
+  file      = file.gdsc2.wide,
+  quote     = F, col.names = T, row.names = T, sep = "\t"
+)
+  
+## Check NA distribution across drugs
+table(colSums(is.na(gdsc2.wide)))
+  
+## Remove drugs with >80% NAs (same threshold as CTRP)
+percent.nas <- as.data.frame(colMeans(is.na(gdsc2.wide)) * 100)
+names(percent.nas) <- "percent.nas"
+percent.nas$eighty.percent.keep.flag <- ifelse(percent.nas$percent.nas > 80, 0, 1)
+  
+print("Drugs removed (>80% NA):")
+print(percent.nas[percent.nas$eighty.percent.keep.flag == 0, , drop = FALSE])
+  
+gdsc2.culled <- gdsc2.wide[, names(gdsc2.wide) %in% row.names(percent.nas[percent.nas$eighty.percent.keep.flag == 1, , drop = FALSE])]
+  
+write.table(
+  x    = gdsc2.culled,
+  file = gsub("\\.(csv|txt)$", "_culled80.txt", file.gdsc2.wide),
+  quote = F, col.names = T, row.names = T, sep = "\t"
+)
+  
+## Run missForest imputation
+doParallel::registerDoParallel(cores = detectCores() - 2)
+doRNG::registerDoRNG(seed = 999)
+set.seed(999)
+  
+gdsc2.culled_mf <- missForest(
+  xmis        = gdsc2.culled,
+  parallelize = "variables",
+  verbose     = T
+)
+  
+gdsc2.culled_mf.imp   <- gdsc2.culled_mf$ximp
+gdsc2.culled_mf.imp_t <- as.data.frame(t(gdsc2.culled_mf.imp), stringsAsFactors = F)
+  
+## Save imputed outputs (both orientations)
+write.table(
+  x         = gdsc2.culled_mf.imp,
+  file      = gsub("\\.(csv|txt)$", "_culled80_MFImputed.txt", file.gdsc2.wide),
+  quote     = F, sep = "\t", col.names = NA
+)
+  
+write.table(
+  x         = gdsc2.culled_mf.imp_t,
+  file      = gsub("\\.(csv|txt)$", "_culled80_MFImputed_sg.txt", file.gdsc2.wide),
+  quote     = F, sep = "\t", col.names = NA
+)
 
 
 
@@ -333,8 +413,88 @@ gdsc <- read.delim(paste0(path.gdsc,"sanger-dose-response.csv"), sep = ",", stri
 
 
 
+##### Imputation: PRISM (NA's in Data) #####
 
+## Set OS (for swapping between personal and workstation)
+OS <- "Mac" # Linux or Mac
 
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd   <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.prism <- paste0(path.wd, "DataSets/PRISM/")
+
+## Load in cell line info from depamp
+prism <- read.delim(paste0(path.prism,"Repurposing_Public_24Q2_Extended_Primary_Data_Matrix.csv"), sep = ",", stringsAsFactors = F, check.names = F)
+
+## The first column is the drug ID (unnamed) -- set as rownames
+row.names(prism) <- prism[, 1]
+prism <- prism[, -1]
+  
+## Transpose so it's cell lines x drugs (matching CTRP/GDSC orientation)
+prism.wide <- as.data.frame(t(prism), stringsAsFactors = F)
+## prism.wide is now: rows = ACH cell lines, cols = BRD drug IDs
+  
+file.prism.wide <- paste0(path.gdsc, "prism_lfc_wide.txt")
+  
+write.table(
+  x         = prism.wide,
+  file      = file.prism.wide,
+  quote     = F, col.names = T, row.names = T, sep = "\t"
+)
+  
+## Check NA distribution
+table(colSums(is.na(prism.wide)))
+  
+## Remove drugs with >80% NAs across cell lines
+percent.nas <- as.data.frame(colMeans(is.na(prism.wide)) * 100)
+names(percent.nas) <- "percent.nas"
+percent.nas$eighty.percent.keep.flag <- ifelse(percent.nas$percent.nas > 80, 0, 1)
+  
+print("Drugs removed (>80% NA):")
+print(percent.nas[percent.nas$eighty.percent.keep.flag == 0, , drop = FALSE])
+cat("Total drugs removed:", sum(percent.nas$eighty.percent.keep.flag == 0), "\n")
+cat("Total drugs retained:", sum(percent.nas$eighty.percent.keep.flag == 1), "\n")
+  
+prism.culled <- prism.wide[,names(prism.wide) %in% row.names(percent.nas[percent.nas$eighty.percent.keep.flag == 1, , drop = FALSE])]
+  
+write.table(
+  x    = prism.culled,
+  file = gsub("\\.(csv|txt)$", "_culled80.txt", file.prism.wide),
+  quote = F, col.names = T, row.names = T, sep = "\t"
+)
+  
+## Run missForest imputation
+doParallel::registerDoParallel(cores = detectCores() - 2)
+doRNG::registerDoRNG(seed = 999)
+set.seed(999)
+  
+prism.culled_mf <- missForest(
+  xmis        = prism.culled,
+  parallelize = "variables",
+  verbose     = T
+)
+  
+prism.culled_mf.imp   <- prism.culled_mf$ximp
+prism.culled_mf.imp_t <- as.data.frame(t(prism.culled_mf.imp), stringsAsFactors = F)
+  
+## Save both orientations
+write.table(
+  x         = prism.culled_mf.imp,
+  file      = gsub("\\.(csv|txt)$", "_culled80_MFImputed.txt", file.prism.wide),
+  quote     = F, sep = "\t", col.names = NA
+)
+  
+write.table(
+  x         = prism.culled_mf.imp_t,
+  file      = gsub("\\.(csv|txt)$", "_culled80_MFImputed_sg.txt", file.prism.wide),
+  quote     = F, sep = "\t", col.names = NA
+)
 
 ##### PLS: CRISPR & CTRP #####
 
