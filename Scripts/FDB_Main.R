@@ -307,6 +307,35 @@ write.table(
   col.names = NA
   )
 
+##### Imputation: GDSC (NA's in Data) #####
+
+## Set OS (for swapping between personal and workstation)
+OS <- "Mac" # Linux or Mac
+
+if (OS == "Mac") {
+  path.OS <- "/Users/jack/Library/CloudStorage/Box-Box/"
+} else {
+  path.OS <- "/media/testuser/SSD_4/jfreeland/Freeland/Github/"
+}
+
+## Set paths
+path.wd   <- paste0(path.OS, "WD_FDB_Freeland/")
+path.dm   <- paste0(path.wd, "DataSets/DepMap_25Q3/")
+path.gdsc <- paste0(path.wd, "DataSets/GDSC/")
+
+## Load in cell line info from depamp
+gdsc <- read.delim(paste0(path.gdsc,"sanger-dose-response.csv"), sep = ",", stringsAsFactors = F, check.names = F)
+
+
+
+
+
+
+
+
+
+
+
 ##### PLS: CRISPR & CTRP #####
 
 ## Set OS (for swapping between personal and workstation)
@@ -5042,7 +5071,7 @@ if (1) {
 ##### Manual GO Plot V1 #####
 plot_go_enrichment <- function(pathways, padj, modules, colors, FoldEnrichment,
                                gene_ratio = NULL,
-                               title = "CRISPR GO:BP Results (FDR < 0.05)") {
+                               title = "RNAi GO:BP Results (FDR < 0.05)") {
   
   df <- data.frame(
     pathway        = pathways,
@@ -5387,7 +5416,7 @@ if (1) {
     file = paste0(path.pca, "CRISPR_common_PCA_prcomp_scores.txt"),
     info.name = info_name,
     info.type = as.factor(info_type),
-    title = "CRISPR Common",
+    title = "CRISPR PCA: Shared Genes",
     ellipse = F,
     labels = F,
     colors = NULL,
@@ -5402,7 +5431,7 @@ if (1) {
     file = paste0(path.pca, "RNAi_common_PCA_prcomp_scores.txt"),
     info.name = info_name,
     info.type = as.factor(info_type),
-    title = "RNAi Common",
+    title = "RNAi PCA: Shared Genes",
     ellipse = F,
     labels = F,
     colors = NULL,
@@ -5765,6 +5794,150 @@ if (1) {
   
 }
 
+### KS Tests: Do modules preferentially fall on one side of theta? ###
+if (1) {
+  
+  theta_cutoff_low  <- 30   # below = RNAi biased
+  theta_cutoff_high <- 60   # above = CRISPR biased
+  
+  run_module_ks_tests <- function(data, module_col, display_name_col, theta_col = "theta_deg", dataset_label) {
+    
+    modules <- unique(data[[module_col]])
+    modules <- modules[!is.na(modules) & modules != "grey80"]
+    
+    # Background = all non-grey genes
+    background_theta <- data %>%
+      dplyr::filter(.data[[module_col]] != "grey80") %>%
+      dplyr::pull(.data[[theta_col]])
+    
+    results <- purrr::map_dfr(modules, function(mod) {
+      
+      module_theta <- data %>%
+        dplyr::filter(.data[[module_col]] == mod) %>%
+        dplyr::pull(.data[[theta_col]])
+      
+      display_name <- data %>%
+        dplyr::filter(.data[[module_col]] == mod) %>%
+        dplyr::pull(.data[[display_name_col]]) %>%
+        unique() %>%
+        .[1]
+      
+      n_mod <- length(module_theta)
+      if (n_mod < 5) return(NULL)
+      
+      ks_res   <- ks.test(module_theta, background_theta)
+      
+      # Directional: is the module shifted toward RNAi (<30) or CRISPR (>60)?
+      frac_rnai_biased   <- mean(module_theta < theta_cutoff_low)
+      frac_crispr_biased <- mean(module_theta > theta_cutoff_high)
+      frac_neutral       <- mean(module_theta >= theta_cutoff_low & module_theta <= theta_cutoff_high)
+      median_theta       <- median(module_theta)
+      
+      direction <- dplyr::case_when(
+        median_theta < theta_cutoff_low  ~ "RNAi biased",
+        median_theta > theta_cutoff_high ~ "CRISPR biased",
+        TRUE                             ~ "Neutral"
+      )
+      
+      data.frame(
+        dataset           = dataset_label,
+        module_color      = mod,
+        module_name       = display_name,
+        n_genes           = n_mod,
+        median_theta      = round(median_theta, 2),
+        direction         = direction,
+        frac_rnai_biased  = round(frac_rnai_biased,   3),
+        frac_neutral      = round(frac_neutral,        3),
+        frac_crispr_biased = round(frac_crispr_biased, 3),
+        ks_statistic      = round(ks_res$statistic, 4),
+        ks_pval           = ks_res$p.value,
+        stringsAsFactors  = FALSE
+      )
+    })
+    
+    results %>%
+      dplyr::mutate(ks_padj = p.adjust(ks_pval, method = "BH")) %>%
+      dplyr::arrange(ks_padj)
+  }
+  
+  ## Run for CRISPR modules
+  ks_CRISPR <- run_module_ks_tests(
+    data              = Max_PCA_CRISPR_ordered,
+    module_col        = "CRISPR_module_color",
+    display_name_col  = "CRISPR_module_color",   # CRISPR uses raw color as display name (post-remap via CRISPR_display_color separately)
+    dataset_label     = "CRISPR"
+  )
+  
+  ## Run for RNAi modules
+  ks_RNAi <- run_module_ks_tests(
+    data              = Max_PCA_RNAi_ordered,
+    module_col        = "RNAi_module_color",
+    display_name_col  = "RNAi_display_name",
+    dataset_label     = "RNAi"
+  )
+  
+  ks_combined <- dplyr::bind_rows(ks_CRISPR, ks_RNAi)
+  
+  print(ks_combined)
+  
+  write.table(
+    x         = ks_combined,
+    file      = paste0(path.max, "KS_Test_Module_Theta_Bias.txt"),
+    quote     = F,
+    sep       = "\t",
+    col.names = T,
+    row.names = F
+  )
+  
+  ## Visualization: forest-style dot plot of median theta per module
+  ks_sig <- ks_combined %>%
+    dplyr::mutate(
+      label      = paste0(dataset, ": ", module_name),
+      sig_marker = dplyr::case_when(
+        ks_padj < 0.001 ~ "***",
+        ks_padj < 0.01  ~ "**",
+        ks_padj < 0.05  ~ "*",
+        TRUE            ~ "ns"
+      )
+    )
+  
+  p_ks_dot <- ggplot(ks_sig, aes(x = median_theta, y = reorder(label, median_theta), color = direction)) +
+    geom_vline(xintercept = c(30, 60), linetype = "dotted", color = "grey40", linewidth = 0.4) +
+    geom_point(aes(size = n_genes), alpha = 0.85) +
+    geom_text(
+      aes(label = sig_marker),
+      hjust  = -0.4,
+      size   = 3,
+      color  = "black"
+    ) +
+    scale_color_manual(
+      values = c("RNAi biased" = "#5E2F80", "Neutral" = "#BDBDBD", "CRISPR biased" = "#D47D37"),
+      name   = "Direction"
+    ) +
+    scale_size_continuous(name = "# genes", range = c(2, 7)) +
+    scale_x_continuous(limits = c(0, 90), breaks = c(0, 30, 60, 90)) +
+    labs(
+      x     = "Median θ (degrees)",
+      y     = NULL,
+      title = "KS Test: Module Theta Bias vs Background",
+      subtitle = "* p<0.05, ** p<0.01, *** p<0.001 (BH adjusted)"
+    ) +
+    theme_classic(base_size = 9) +
+    theme(
+      legend.key      = element_blank(),
+      legend.position = "right"
+    )
+  
+  ggsave(
+    filename = paste0(path.plots, "KS_Test_Module_Theta_Bias_DotPlot.pdf"),
+    plot     = p_ks_dot,
+    width    = 6, height = max(3, nrow(ks_sig) * 0.4),
+    units    = "in",
+    device   = cairo_pdf
+  )
+  
+}
+
 ##### Melanoma / Differentiation Signature #####
 
 ## Set OS (for swapping between personal and workstation)
@@ -5784,7 +5957,7 @@ path.mel     <- paste0(path.wd, "DataSets/Melanoma/")
 path.pls     <- paste0(path.wd, "DataSets/PLS/")
 
 #### Get Hallmark EMT gene set from MSigDB
-if (0) {
+if (1) {
 
   ## Get Hallmark EMT gene set
   hallmark_emt <- msigdbr::msigdbr(
@@ -5873,6 +6046,9 @@ if (0) {
   cat("EMT score range:", round(range(EMT_scores$EMT), 3), "\n")
   cat("Number of cell lines scored:", nrow(EMT_scores), "\n")
   
+  ### Flip for graphic purposes
+  EMT_scores <- EMT_scores * -1
+  
   write.table(
     x = EMT_scores,
     file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_", score_method, ".txt"),
@@ -5884,7 +6060,7 @@ if (0) {
 }
 
 #### Co-Rank to Compare Z-score vs ssGSEA score
-if(0) {
+if(1) {
   
   ssGSEA_rank <- read.table(
     file = paste0(path.mel, "CCLE_Exhaustion_HALLMARK_EMT_ssgsea.txt"),
@@ -6204,7 +6380,7 @@ if (1) {
 ## Set Parameters
 score_method <- "ssgsea"    # zscore or ssgsea
 weight       <- "function"  # function (standard, WLS via weights argument, abs weights) or prior (direct multiply wx transformation, signed weights. not the standard)
-comp <- "comp4"
+comp <- "comp2"
 
 # Lineage filtering — uses exact OncotreeLineage values from Model.csv (one or both must = NULL)
 keep <- NULL # only retain these lineages  e.g. c("Skin") or NULL, or epithelial c("Biliary Tract", "Bladder/Urinary Tract", "Bowel", "Breast", "Cervix", "Esophagus/Stomach", "Head and Neck", "Kidney", "Liver", "Lung", "Ovary/Fallopian Tube", "Pancreas", "Prostate", "Skin", "Thyroid", "Uterus", "Vulva/Vagina", "Ampulla of Vater", "Pleura")
@@ -6293,12 +6469,21 @@ if (1) {
   
   ## Cancer type grouping
   df$cancer_group <- dplyr::case_when(
-    grepl("Brain",           df$OncotreeLineage, ignore.case = TRUE) ~ "Brain Cancer",
-    grepl("Stomach", df$OncotreeLineage, ignore.case = TRUE) ~ "Gastric Cancer",
+    # grepl("Brain",           df$OncotreeLineage, ignore.case = TRUE) ~ "Brain Cancer",
+    # grepl("Stomach", df$OncotreeLineage, ignore.case = TRUE) ~ "Gastric Cancer",
+    # grepl("Head|Neck",       df$OncotreeLineage, ignore.case = TRUE) ~ "Head and Neck Cancer",
+    # grepl("Kidney|Renal",    df$OncotreeLineage, ignore.case = TRUE) ~ "Kidney Cancer",
+    # grepl("Skin|Melanoma",   df$OncotreeLineage, ignore.case = TRUE) ~ "Skin Cancer",
+    # TRUE ~ "Other"
+    
+    grepl("CNS/Brain",           df$OncotreeLineage, ignore.case = TRUE) ~ "CNS/Brain",
     grepl("Head|Neck",       df$OncotreeLineage, ignore.case = TRUE) ~ "Head and Neck Cancer",
-    grepl("Kidney|Renal",    df$OncotreeLineage, ignore.case = TRUE) ~ "Kidney Cancer",
+    
+    grepl("Myeloid|Lymphoid", df$OncotreeLineage, ignore.case = TRUE) ~ "Hematological",
+    grepl("Bowel",    df$OncotreeLineage, ignore.case = TRUE) ~ "Bowel",
     grepl("Skin|Melanoma",   df$OncotreeLineage, ignore.case = TRUE) ~ "Skin Cancer",
     TRUE ~ "Other"
+    
   )
   
   ## Reorder so "Other" plots first (behind)
@@ -6321,7 +6506,7 @@ if (1) {
   genes_med  <- c("MED24", "MED16", "MED25", "MED10", "MED19", "MED1", "MED23", "MED9", "MED15", "MED12")
   
   #### Genome-wide CRISPR correlation with EMT signature
-  if (1) {
+  if (0) {
     
     ## Subset CRISPR to filtered cell lines
     CRISPR_filtered <- CRISPR[common_ids, ]
@@ -6452,10 +6637,17 @@ if (1) {
   
   ## Color palette
   cancer_colors <- c(
-    "Brain Cancer"         = "#87CEEB",
-    "Gastric Cancer"       = "#00BFFF",
-    "Head and Neck Cancer" = "#FFA500",
-    "Kidney Cancer"        = "#90EE90",
+    # "Brain Cancer"         = "#87CEEB",
+    # "Gastric Cancer"       = "#00BFFF",
+    # "Head and Neck Cancer" = "#FFA500",
+    # "Kidney Cancer"        = "#90EE90",
+    # "Skin Cancer"          = "#FFB6C1",
+    # "Other"                = "#C0C0C0"
+    
+    "CNS/Brain"         = "#850014",
+    "Head and Neck Cancer"       = "#00BFFF",
+    "Hematological" = "#FFA500",
+    "Bowel"        = "#90EE90",
     "Skin Cancer"          = "#FFB6C1",
     "Other"                = "#C0C0C0"
   )
@@ -6543,10 +6735,14 @@ if (1) {
     ) +
     ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
     ggplot2::labs(
-      x = "Differentiation Score\n
-      Differentiated \u2190  \u2192 Un-differentiated
-      \n Epithelial \u2190  \u2192 Mesenchymal",
-      y = "GPX4 CRISPR Dependency\nMore Dependent \u2190\u2192 Less Dependent"
+      # x = "Differentiation Score\n
+      # Differentiated \u2190  \u2192 Un-differentiated
+      # \n Epithelial \u2190  \u2192 Mesenchymal",
+      # y = "GPX4 CRISPR Dependency\nMore Dependent \u2190\u2192 Less Dependent"
+      
+      x = "Differentiation Score",
+      y = "GPX4 CRISPR Dependency"
+      
     ) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "none")
@@ -6578,10 +6774,15 @@ if (1) {
       name = "Variate Score"
     ) +
     ggplot2::scale_size_continuous(range = c(0.5, 6), name = "Weight") +
-    ggplot2::labs(x = "Differentiation Score\n
-      Differentiated \u2190  \u2192 Un-differentiated
-      \n Epithelial \u2190  \u2192 Mesenchymal",
-                  y = "MED12 CRISPR Dependency") +
+    ggplot2::labs(
+    # x = "Differentiation Score\n
+    #   Differentiated \u2190  \u2192 Un-differentiated
+    #   \n Epithelial \u2190  \u2192 Mesenchymal",
+    # y = "MED12 CRISPR Dependency"
+      
+      x = "Differentiation Score",
+      y = "MED12 CRISPR Dependency"
+    ) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "none")
   
@@ -6632,6 +6833,151 @@ if (1) {
   cat("Saved:", save_name)
   
 }
+
+#### Export Individual Panels
+if (1) {
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, "Panel_A_Bar_", filter_tag, "_", weight_tag, "_", score_method, "_", comp, ".pdf"),
+    plot     = p_bar,
+    width    = 11.5,
+    height   = 4
+  )
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, "Panel_B_GPX4_", filter_tag, "_", weight_tag, "_", score_method, "_", comp, ".pdf"),
+    plot     = p_gpx4,
+    width    = 4.5,
+    height   = 3.5
+  )
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, "Panel_C_MED12_", filter_tag, "_", weight_tag, "_", score_method, "_", comp, ".pdf"),
+    plot     = p_med12,
+    width    = 4.5,
+    height   = 3.5
+  )
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, "Panel_C_MED12_", filter_tag, "_", weight_tag, "_", score_method, "_", comp, "_FORLEGEND.pdf"),
+    plot     = p_med12 + ggplot2::theme(legend.position = "right"),
+    width    = 6,
+    height   = 5
+  )
+  
+  cat("Saved individual panels: A (bar), B (GPX4), C (MED12)\n")
+  
+}
+
+
+#### KS Test: Cancer Type Enrichment Along Differentiation Score (All Lineages)
+if (1) {
+  
+  ## Rank all cell lines by EMT score (ascending = most epithelial first)
+  df_ks <- df %>%
+    dplyr::arrange(EMT) %>%
+    dplyr::mutate(rank_EMT = seq_len(nrow(.)))
+  
+  ## Filter to lineages with enough cell lines to test
+  min_n <- 5
+  lineage_counts <- table(df_ks$OncotreeLineage)
+  lineages_test  <- names(lineage_counts[lineage_counts >= min_n])
+  cat("Testing", length(lineages_test), "lineages with n >=", min_n, "\n")
+  
+  ks_results_lineage <- purrr::map_dfr(lineages_test, function(lin) {
+    
+    in_group  <- df_ks$EMT[df_ks$OncotreeLineage == lin]
+    out_group <- df_ks$EMT[df_ks$OncotreeLineage != lin]
+    
+    ks     <- ks.test(in_group, out_group)
+    med_in  <- median(in_group,  na.rm = TRUE)
+    med_out <- median(out_group, na.rm = TRUE)
+    
+    data.frame(
+      lineage        = lin,
+      n              = length(in_group),
+      median_EMT     = round(med_in,  4),
+      median_other   = round(med_out, 4),
+      direction      = ifelse(med_in > med_out, "Mesenchymal-enriched", "Epithelial-enriched"),
+      D_statistic    = round(ks$statistic, 4),
+      p_value        = ks$p.value,
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  ks_results_lineage$p_adj <- p.adjust(ks_results_lineage$p_value, method = "BH")
+  ks_results_lineage$sig   <- dplyr::case_when(
+    ks_results_lineage$p_adj < 0.001 ~ "***",
+    ks_results_lineage$p_adj < 0.01  ~ "**",
+    ks_results_lineage$p_adj < 0.05  ~ "*",
+    TRUE                             ~ "ns"
+  )
+  ks_results_lineage <- ks_results_lineage %>% dplyr::arrange(p_adj)
+  
+  cat("KS test results (all lineages, ranked by p_adj):\n")
+  print(ks_results_lineage)
+  
+  write.table(
+    x         = ks_results_lineage,
+    file      = paste0(path.mel, "KS_AllLineages_EMT_Enrichment_", filter_tag, "_", score_method, ".txt"),
+    sep       = "\t",
+    quote     = FALSE,
+    row.names = FALSE
+  )
+  
+  ## Plot: lollipop of D statistic, signed by direction, colored by significance
+  ks_results_lineage$D_signed <- ifelse(
+    ks_results_lineage$direction == "Mesenchymal-enriched",
+    ks_results_lineage$D_statistic,
+    -ks_results_lineage$D_statistic
+  )
+  ks_results_lineage$lineage <- factor(
+    ks_results_lineage$lineage,
+    levels = ks_results_lineage$lineage[order(ks_results_lineage$D_signed)]
+  )
+  
+  p_ks_lineage <- ggplot2::ggplot(
+    ks_results_lineage,
+    ggplot2::aes(x = D_signed, y = lineage, color = sig)
+  ) +
+    ggplot2::geom_segment(
+      ggplot2::aes(x = 0, xend = D_signed, y = lineage, yend = lineage),
+      linewidth = 0.5
+    ) +
+    ggplot2::geom_point(size = 3) +
+    ggplot2::geom_vline(xintercept = 0, color = "black", linewidth = 0.4) +
+    ggplot2::scale_color_manual(
+      values = c("***" = "#b2182b", "**" = "#ef8a62", "*" = "#fdbf6f", "ns" = "grey70"),
+      name   = "BH-adjusted p"
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = paste0("n=", n)),
+      hjust  = -0.3,
+      size   = 2.5,
+      color  = "grey40"
+    ) +
+    ggplot2::labs(
+      x     = expression("KS D statistic (signed: negative" %->% "Epithelial, positive" %->% "Mesenchymal)"),
+      y     = "",
+      title = paste0("KS Test: All Lineages Along Differentiation Axis | ", score_method)
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      legend.position = "right",
+      axis.text.y     = ggplot2::element_text(size = 8)
+    )
+  
+  ggplot2::ggsave(
+    filename = paste0(path.plots, "KS_AllLineages_EMT_Enrichment_", filter_tag, "_", score_method, ".pdf"),
+    plot     = p_ks_lineage,
+    width    = 9,
+    height   = max(4, length(lineages_test) * 0.28)
+  )
+  
+  cat("Saved all-lineage KS enrichment plot and table\n")
+  
+}
+
 
 ##### Drug Potentiality Score: PLS-C (CRISPR×CTRP) + PCA #####
 
@@ -6853,19 +7199,19 @@ if (1) {
 if (1) {
   
   ## Auto: top 10 and bottom 10 by drug potentiality score
-  top10    <- DP %>% dplyr::arrange(desc(drug_potentiality)) %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
-  bottom10 <- DP %>% dplyr::arrange(drug_potentiality)      %>% dplyr::slice_head(n = 10) %>% dplyr::pull(Loading)
+  top10    <- DP %>% dplyr::arrange(desc(drug_potentiality)) %>% dplyr::slice_head(n = 5) %>% dplyr::pull(Loading)
+  bottom10 <- DP %>% dplyr::arrange(drug_potentiality)      %>% dplyr::slice_head(n = 5) %>% dplyr::pull(Loading)
   
   ## Manual curation list (from paper figure + your existing annotation groups)
   genes_manual <- c(
     ## Desert
-    "KRAS", "PTEN", "SOD2", "MED12",
+    "KRAS", "PTEN", "MED12",
     ## Forest
     "VEGFA", "EPCAM", "ERG",
     
     # "NGF", "ITGA5", "ITGA6", "ITGAB4", "ERG", "SOX5", "ELF4", "KDR", "EFG", "TAP1", "ICAM2", "SLAMF1", "CDC42BPA", "NCAM1", "VEGFA", "GABARAP", "VRK2",
     ## Neutral
-    "PIK3CA", "GPX4", "BRAF"
+    "PIK3CA", "GPX4", "BRAF", "MED12"
   )
   
   all_labels <- unique(c(top10, bottom10, genes_manual))
@@ -6954,7 +7300,8 @@ if (1) {
                  "#b7e4b7", "#4caf50", "#1a7a1a", "#004d00"),
       values = scales::rescale(c(-1, -0.92, -0.70, -0.50, 0.0, 0.50, 0.925, 0.97, 1)),
       limits = c(-1, 1),
-      name   = paste0("Drug Potentiality\n(", method, " Quant. \u2212 PCA Quant.)"),
+      # name   = paste0("Drug Potentiality\n(", method, " Quant. \u2212 PCA Quant.)"),
+      name   = "Score",
       guide  = guide_colorbar(barheight = unit(6, "cm"), barwidth = unit(0.4, "cm"))
     ) +
     
@@ -6970,32 +7317,34 @@ if (1) {
     geom_hline(yintercept = 0,              linetype = "solid",  color = "black",  linewidth = 0.5) +
     
     ## Gene labels
- # geom_text_repel(
- #      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
- #      aes(label     = label),
- #      size          = 2.8,
- #      color         = "#004d00",
- #      fontface      = "bold",
- #      box.padding   = 0.5,
- #      point.padding = 0.3,
- #      max.overlaps  = 30,
- #      segment.size  = 0.4,
- #      segment.color = "#004d00"
- #    ) +
-    
-    # geom_text_repel(
-    #   data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
-    #   aes(label     = label),
-    #   size          = 2.8,
-    #   color         = "#8B0000",
-    #   fontface      = "bold",
-    #   box.padding   = 0.5,
-    #   point.padding = 0.3,
-    #   max.overlaps  = 30,
-    #   segment.size  = 0.4,
-    #   segment.color = "#8B0000"
-    # ) +
-    # 
+ geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "top10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#004d00",
+      fontface      = "bold",
+      box.padding   = 0.8, # was 0.5
+      point.padding = 0.5, # 0.5
+      max.overlaps  = Inf, # Inf
+      segment.size  = 0.4,
+      segment.color = "#004d00",
+      nudge_y       = 0.02,
+      nudge_x       = -0.01
+    ) +
+
+    geom_text_repel(
+      data          = DP_plot %>% dplyr::filter(label_group == "bottom10"),
+      aes(label     = label),
+      size          = 2.8,
+      color         = "#8B0000",
+      fontface      = "bold",
+      box.padding   = 0.8, # was 0.5
+      point.padding = 0.5, # 0.5
+      max.overlaps  = Inf, # Inf
+      segment.size  = 0.4,
+      segment.color = "#8B0000"
+    ) +
+
     geom_label_repel(
       data          = DP_plot %>% dplyr::filter(label_group == "manual"),
       aes(label     = label),
@@ -7012,7 +7361,8 @@ if (1) {
       segment.size  = 0.3,
       segment.color = "grey50",
       min.segment.length = 0,
-      nudge_x       = 0.02,
+      nudge_x       = 0.03,
+      nudge_y       = -0.02,
       direction     = "y",
       hjust         = 0
     ) +
@@ -7060,9 +7410,11 @@ if (1) {
              fontface = "italic", hjust = 0.5) +
     
     labs(
-      x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
-      y     = paste0(method, " Quantile \u2212 PCA Quantile\n(Drug Potentiality Score)"),
-      title = paste0("Drug Potentiality Score\n(", file_tag, Filtered_Tag, ")")
+      # x     = "Distance to origin\n(Euclidean magnitude of drug + PCA loadings)",
+      x = "Distance to origin",
+      y     = paste0("Drug Potentiality Score (", method, " Quantile \u2212 PCA Quantile)"),
+      # y = "Drug Potentiality Score",
+      # title = paste0("Drug Potentiality Score\n(", file_tag, Filtered_Tag, ")")
     ) +
     scale_x_continuous(expand = expansion(mult = c(0.01, 0.12))) +
     theme_classic(base_size = 11) +
@@ -7075,7 +7427,7 @@ if (1) {
   ggsave(
     filename = paste0(path.plots, "DrugPotentiality_", method, "_", output_tag, Filtered_Tag, ".pdf"),
     plot     = p_dp,
-    width    = 7,
+    width    = 6,
     height   = 7,
     units    = "in",
     device   = cairo_pdf
@@ -7186,8 +7538,9 @@ if (1) {
     (panels_pca$p_dist  | panels_pca$p_cdf) /
     (p_raw               | p_quant) +
     patchwork::plot_annotation(
-      title = paste0("Drug Potentiality Score = (Drug + Gene Co-signal) - Gene Signal\n",
-                     method, " vs PCA"),
+      # title = paste0("Drug Potentiality Score = (Drug + Gene Co-signal) - Gene Signal\n",
+      #                method, " vs PCA"),
+      title = "Signal Normalization",
       theme = theme(plot.title = element_text(face = "bold", size = 11, hjust = 0.5))
     )
   
